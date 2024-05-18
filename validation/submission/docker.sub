@@ -7,13 +7,12 @@ when_to_transfer_output = ON_EXIT
 transfer_output_files   = output.txt
 arguments               = $(rep) $(seeds)
 
-output			= outs/sim_$(Cluster)_$(Process).out
-error                   = errs/sim_$(Cluster)_$(Process).err
-log                     = log.$(Process)
+request_cpus            = 1
+request_memory          = 1GB
+request_disk            = 1GB
+output			= logs/sim_$(Cluster)_$(Process).out
+error                   = logs/sim_$(Cluster)_$(Process).err
+log                     = logs/$(Process).log
 request_memory          = 900M
 request_disk            = 100M
-queue rep,seeds
-
-request_cpus = 1
-request_memory = 1GB
-request_disk = 1GB
+queue rep,seeds from seeds.csv

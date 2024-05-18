@@ -67,7 +67,7 @@ def main():
     parser.add_argument("seeds")
     args = parser.parse_args()
 
-    seeds = np.fromstring(args.seeds, sep=",", dtype=np.int32)
+    seeds = np.fromstring(args.seeds, sep="|", dtype=np.int32)
     assert not (seeds < 1).any(), "bad seeds"
 
     Ne = 10_000
