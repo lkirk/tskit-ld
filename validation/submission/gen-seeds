@@ -1,0 +1,19 @@
+#!/usr/bin/env python
+
+import numpy as np
+import csv
+
+num_replicates = 1_000_000
+batch_size = 100
+num_batches = num_replicates // batch_size
+assert (
+    num_replicates % batch_size == 0
+), "batch size is not compatible with num replicates"
+
+rng = np.random.RandomState(23)
+seeds = rng.randint(1, 2**31, num_replicates).reshape(num_batches, batch_size)
+
+with open("seeds.csv", "w") as fp:
+    for i in range(num_batches):
+        writer = csv.writer(fp)
+        writer.writerow([i, ",".join(map(str, seeds[i]))])
