@@ -1,0 +1,7 @@
+numpy
+tskit
+msprime
+portion
+pytest
+kastore
+networkx
