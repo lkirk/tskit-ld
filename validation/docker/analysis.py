@@ -67,7 +67,7 @@ def main():
     parser.add_argument("seeds")
     args = parser.parse_args()
 
-    seeds = np.fromstring(args.seeds, sep="|", dtype=np.int32)
+    seeds = np.fromstring(args.seeds, sep="-", dtype=np.int32)
     assert not (seeds < 1).any(), "bad seeds"
 
     Ne = 10_000
@@ -82,7 +82,7 @@ def main():
     for i in range(1, sequence_length - 1):
         positions[i] = np.arange(0, sequence_length, r * i * Ne)
 
-    logger.info("Processing rep %s, pwd: %s", args.rep, os.getcwd())
+    logger.info("Processing rep=%s seeds=%s cwd=%s", args.rep, args.seeds, os.getcwd())
     results = []
     for i, seed in enumerate(seeds):
         logger.info("Starting round %d seed %d", i, seed)

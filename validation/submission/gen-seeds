@@ -16,4 +16,4 @@ seeds = rng.randint(1, 2**31, num_replicates).reshape(num_batches, batch_size)
 with open("seeds.csv", "w") as fp:
     for i in range(num_batches):
         writer = csv.writer(fp, quoting=csv.QUOTE_NONE)
-        writer.writerow([i, "|".join(map(str, seeds[i]))])
+        writer.writerow([i, "-".join(map(str, seeds[i]))])
