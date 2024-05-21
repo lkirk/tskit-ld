@@ -1,0 +1,10 @@
+#!/bin/bash
+set -eou pipefail
+
+i=0
+while read l; do
+    d=logs/out/$(cut -f1,2 -d, <<<"$l"| sed -e's/,/_/g')
+    mkdir -p $d
+    condor_tail -maxbytes 100000 1584725.$i > $d/outerr.log
+    ((i++))
+done < params.csv
