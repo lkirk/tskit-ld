@@ -2,7 +2,7 @@ universe                = docker
 docker_image            = ghcr.io/lkirk/tskit-ld/spatial-ld-slim
 docker_pull_policy      = always  # this means we always pull from the docker repo (see warnings in docs)
 
-arguments               = -s $(seed) -d G=$(genome_len) -d sigma=$(sigma) -d outpath="'out'"
+arguments               = -s $(seed) -d G=$(genome_len) -d sigma=$(sigma)
 
 should_transfer_files   = YES
 when_to_transfer_output = ON_EXIT

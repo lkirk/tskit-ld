@@ -2,30 +2,30 @@
 
 set -euo pipefail
 
-OUTPATH=""
+OUTPATH="out"
 SEED=""
 for arg in $(seq 1 $#); do
-    if [[ "${!arg}" == outpath=* ]]; then
-	OUTPATH=$(tr -d "'" <<<"${!arg/outpath=/}")
-    fi
+    # if [[ "${!arg}" == outpath=* ]]; then
+    # 	OUTPATH=$(tr -d "'" <<<"${!arg/outpath=/}")
+    # fi
     if [[ "${!arg}" == "-s" ]]; then
 	next_arg=$((arg + 1))
 	SEED="${!next_arg}"
     fi
 done
 
-if [[ -z "$OUTPATH" ]]; then
-    echo "No output path specified, use -d outpath=\"'/path/to/output'\"" >&2
-    exit 1
-fi
+# if [[ -z "$OUTPATH" ]]; then
+#     echo "No output path specified, use -d outpath=\"'/path/to/output'\"" >&2
+#     exit 1
+# fi
 if [[ -z "$SEED" ]]; then
     echo "No seed specified, use -s <some integer>" >&2
     exit 1
 fi
 
-echo "Running slim with the following parameters:" "$@" main.slim
+echo "Running slim with the following parameters:" "$@" -d "outpath="'"'"$OUTPATH"'"'"" main.slim
 set -x
 mkdir -p "$OUTPATH"
-slim "$@" main.slim
+slim "$@" -d "outpath="'"'"$OUTPATH"'"'"" main.slim
 tar -czvf "${SEED}.tar.gz" "${OUTPATH}"
 rm -r "${OUTPATH}"
