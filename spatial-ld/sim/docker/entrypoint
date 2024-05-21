@@ -23,9 +23,9 @@ if [[ -z "$SEED" ]]; then
     exit 1
 fi
 
-echo "Running slim with the following parameters:" "$@" -d "outpath="'"'"$OUTPATH"'"'"" main.slim
+echo "Running slim with the following parameters:" "$@" -d "outpath="'"'"$OUTPATH"'"'"" /opt/main.slim
 set -x
 mkdir -p "$OUTPATH"
-slim "$@" -d "outpath="'"'"$OUTPATH"'"'"" main.slim
+slim "$@" -d "outpath="'"'"$OUTPATH"'"'"" /opt/main.slim
 tar -czvf "${SEED}.tar.gz" "${OUTPATH}"
 rm -r "${OUTPATH}"
