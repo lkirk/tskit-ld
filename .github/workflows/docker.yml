@@ -5,6 +5,13 @@ on: push
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        container:
+          - name: validation
+            context: validation/sim/docker
+          - name: spatial-ld-slim
+            context: spatial-ld/sim/docker
 
     permissions:  # Sets the permissions granted to the `GITHUB_TOKEN`
       contents: read
@@ -25,7 +32,7 @@ jobs:
         id: metadata  # store tags/labels in this workflow id
         uses: docker/metadata-action@v4
         with:
-          images: ghcr.io/${{ github.repository }}/validation
+          images: ghcr.io/${{ github.repository }}/${{ matrix.container.name }}
           tags: |
             # set latest tag for default branch
             type=raw,value=latest,enable={{is_default_branch}}
@@ -33,7 +40,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
-          context: validation/sim/docker/
+          context: ${{ matrix.container.context }}
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
