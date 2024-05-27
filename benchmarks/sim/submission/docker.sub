@@ -1,0 +1,19 @@
+universe                = docker
+docker_image            = ghcr.io/lkirk/tskit-ld/benchmarks
+docker_pull_policy      = always  # this means we always pull from the docker repo (see warnings in docs)
+
+arguments               = $(mode) $(rep) $(ne) $(recomb) $(mu) $(samples) $(sequence)_$(length) $(seed)
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_output_files   = $(rep).npz
+transfer_output_remaps  = "$(rep).npz = output-$(Cluster)/result/$(rep).npz"
+
+request_cpus            = 1
+request_memory          = 4GB
+request_disk            = 1GB
+output                  = output-$(Cluster)/logs/out/$(Cluster)_$(Process).out
+error                   = output-$(Cluster)/logs/err/$(Cluster)_$(Process).err
+log                     = output-$(Cluster)/cluster.log
+
+queue mode,rep,ne,recomb,mu,samples,sequence_length,seed from params.csv

@@ -1,0 +1,85 @@
+#!/usr/bin/env python
+
+import argparse
+import logging
+import os
+from timeit import Timer
+
+import msprime
+import numpy as np
+
+# logging.getLogger("msprime").setLevel(logging.WARNING)
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("mode", choices=["site", "branch"])
+    parser.add_argument("rep")
+    parser.add_argument("ne", type=int)
+    parser.add_argument("r")
+    parser.add_argument("mu")
+    parser.add_argument("num_samples", type=int)
+    parser.add_argument("seq_len", type=float)
+    parser.add_argument("seeds")
+    parser.add_argument("--rounds", help="number of timing rounds per seed", default=1)
+    parser.add_argument("--repeat", help="number of repeats per round", default=1)
+    args = parser.parse_args()
+
+    mus = np.fromstring(args.mu, sep="/", dtype=np.float64)
+    assert not (mus < 0).any(), "bad mus"
+    recombs = np.fromstring(args.r, sep="/", dtype=np.float64)
+    assert not (recombs < 0).any(), "bad recombs"
+    seeds = np.fromstring(args.seeds, sep="-", dtype=np.int32)
+    assert not (seeds < 1).any(), "bad seeds"
+
+    if args.mode == "site":
+        assert len(mus) == len(seeds), "must be as many mus as seeds"
+    elif args.mode == "branch":
+        assert len(recombs) == len(seeds), "must be as many recombs as seeds"
+
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO
+    )
+    logger = logging.getLogger(__name__)
+
+    logger.info(
+        "Processing cwd=%s\n%s",
+        os.getcwd(),
+        " ".join(
+            [f"{a}={getattr(args, a)}" for a in dir(args) if not a.startswith("_")]
+        ),
+    )
+
+    results = []
+    tree_stats = []
+    n_seeds = len(seeds)
+    n_digits = int(np.log10(n_seeds)) + 1
+    for i, seed in enumerate(seeds):
+        logger.info("Processing seed %d (%s/%d)", seed, str(i).zfill(n_digits), n_seeds)
+        ts = msprime.sim_ancestry(
+            samples=args.num_samples,
+            population_size=args.ne,
+            recombination_rate=recombs[i] if args.mode == "branch" else args.r,
+            sequence_length=args.seq_len,
+            random_seed=seed,
+        )
+        if args.mode == "site":
+            ts = msprime.sim_mutations(ts, rate=mus[i], random_seed=seed)
+
+        logger.info("Timing LD matrix")
+        timer = Timer(stmt=f'ts.ld_matrix(mode="{args.mode}")', globals=dict(ts=ts))
+        results.append(timer.repeat(args.rounds, args.repeat))
+        tree_stats.append([ts.num_edges, ts.num_trees, ts.num_mutations, ts.num_sites])
+        logger.info("Seed %d complete", seed)
+
+    timing_result = np.array(results, dtype=np.float64)
+    timing_result /= args.repeat  # average for each round
+
+    np.savez_compressed(
+        args.rep,
+        timing_result=np.array(results, dtype=np.float64) / args.repeat, # average for each round
+        tree_stats=np.array(tree_stats, dtype=np.int64)
+    )
+
+
+if __name__ == "__main__":
+    main()

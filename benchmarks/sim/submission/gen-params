@@ -1,0 +1,108 @@
+#!/usr/bin/env python
+
+import numpy as np
+import csv
+
+
+def iter_rep(reps, tot, start):
+    tot += start
+    start_range = range(start, tot, reps)
+    stop_range = range(start + reps, tot + reps, reps)
+    for i, (j, k) in enumerate(zip(start_range, stop_range), start):
+        yield i - start, i, j, k
+
+
+num_site_points = 30
+num_site_reps = 1_000  # per point
+site_params = dict(
+    ne=10_000,
+    samples=500,
+    sequence_length=5_000,
+    recomb_rate=1e-5,
+    mu=np.linspace(1e-7, 1e-3, num=num_site_points),
+)
+
+num_branch_points = 30
+num_branch_reps = 1_000  # per point
+branch_params = dict(
+    ne=10_000,
+    samples=500,
+    sequence_length=5_000,
+    recomb_rate=np.linspace(1e-8, 1e-6, num_branch_points),
+    mu=0,  # not used in branch sims
+)
+
+total_site_reps = num_site_points * num_site_reps
+total_branch_reps = num_branch_points * num_branch_reps
+tot_reps = total_site_reps + total_branch_reps
+
+rng = np.random.RandomState(23)
+seeds = rng.randint(1, 2**31, tot_reps)
+
+num_per_batch = 50
+num_site_batches = total_site_reps // num_per_batch
+num_branch_batches = total_branch_reps // num_per_batch
+assert (
+    num_site_batches % num_per_batch == 0
+), "site batch size is not compatible with num replicates"
+assert (
+    num_branch_batches % num_per_batch == 0
+), "branch batch size is not compatible with num replicates"
+
+
+# # ./entrypoint site 1 10_000 1e-5 1e-4 100 1_000 4-5-6-7-8-9
+rep = 0
+seeds_start = 0
+
+# in order of
+sites_constant = [
+    site_params["ne"],
+    site_params["samples"],
+    site_params["sequence_length"],
+    site_params["recomb_rate"],
+]
+
+# we get short and long running in the same rep
+with open("params.csv", "w") as fp:
+    writer = csv.writer(fp, quoting=csv.QUOTE_NONE)
+    mus = np.tile(site_params["mu"], num_site_reps).reshape(num_site_batches, num_per_batch)
+    for i, rep, start, stop in iter_rep(num_per_batch, total_site_reps, 0):
+        mu = mus[i].copy()
+        mu.sort()
+        mu_str = "/".join(map(str, mu))
+        seed_str = "-".join(map(str, seeds[start:stop]))
+        writer.writerow(
+            [
+                "site",
+                rep,
+                site_params["ne"],
+                site_params["recomb_rate"],
+                mu_str,
+                site_params["samples"],
+                site_params["sequence_length"],
+                seed_str,
+            ]
+        )
+
+    recombs = np.tile(branch_params["recomb_rate"], num_branch_reps).reshape(
+        num_branch_batches, num_per_batch
+    )
+    for i, rep, start, stop in iter_rep(
+        num_per_batch, total_branch_reps, total_site_reps
+    ):
+        recomb = recombs[i].copy()
+        recomb.sort()
+        recomb_str = "/".join(map(str, recomb))
+        seed_str = "-".join(map(str, seeds[start:stop]))
+        writer.writerow(
+            [
+                "branch",
+                rep,
+                branch_params["ne"],
+                recomb_str,
+                branch_params["mu"],
+                branch_params["samples"],
+                branch_params["sequence_length"],
+                seed_str,
+            ]
+        )
