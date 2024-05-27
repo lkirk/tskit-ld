@@ -1,5 +1,4 @@
 numpy
-tskit
 msprime
 portion
 pytest

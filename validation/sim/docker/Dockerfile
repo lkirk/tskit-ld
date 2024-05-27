@@ -5,24 +5,26 @@ ADD requirements.txt .
 RUN \
 	set -ex; \
 	apt-get update; \
-	apt-get install -y git gcc; \
+	apt-get install -y git gcc make; \
 	rm -rf /var/lib/apt/lists/*
 
 RUN \
 	set -ex; \
-	git clone https://github.com/lkirk/tskit -b two-locus-branch-stats-positions
+	git clone https://github.com/lkirk/tskit -b two-locus-branch-stats-positions; \
+	cd tskit/python; \
+	make; \
+	# install local build of tskit
+	pip install /tskit/python
 
 RUN \
 	set -ex; \
-	# create virtual environment
-	python -m venv ve; \
 	# update pip, setuptools
-	ve/bin/pip install -U pip setuptools; \
+	pip install -U pip setuptools; \
 	# install requirements
-	ve/bin/pip install -r requirements.txt
+	pip install -r requirements.txt
 
-WORKDIR opt
+WORKDIR /opt
 
-ADD analysis.py .
+ADD entrypoint .
 
-ENTRYPOINT ["/ve/bin/python", "/opt/analysis.py"]
+ENTRYPOINT ["/opt/entrypoint"]
