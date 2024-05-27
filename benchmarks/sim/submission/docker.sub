@@ -2,7 +2,7 @@ universe                = docker
 docker_image            = ghcr.io/lkirk/tskit-ld/benchmarks
 docker_pull_policy      = always  # this means we always pull from the docker repo (see warnings in docs)
 
-arguments               = $(mode) $(rep) $(ne) $(recomb) $(mu) $(samples) $(sequence)_$(length) $(seed)
+arguments               = $(mode) $(rep) $(ne) $(recomb) $(mu) $(samples) $(sequence_length) $(seed)
 
 should_transfer_files   = YES
 when_to_transfer_output = ON_EXIT
