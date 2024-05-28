@@ -7,11 +7,6 @@ import sys
 import msprime
 import numpy as np
 
-TSKIT_PROTO_DIR = "/tskit/python"
-if TSKIT_PROTO_DIR not in sys.path:
-    sys.path.insert(0, TSKIT_PROTO_DIR)
-from tests.test_ld_matrix import ld_matrix
-
 
 def mean_stat_at_distances(stat, num_positions):
     return np.array(
@@ -47,7 +42,7 @@ def main():
     Ne = 10_000
     mu = 2e-8
     r = 1.25e-5
-    sequence_length = 11
+    sequence_length = 100
 
     logging.basicConfig(
         format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO
@@ -62,7 +57,7 @@ def main():
     for i, seed in enumerate(seeds):
         logger.info("Starting round %d seed %d", i, seed)
         ts = msprime.sim_ancestry(
-            samples=10,
+            samples=100,
             population_size=Ne,
             recombination_rate=r,
             sequence_length=sequence_length,
