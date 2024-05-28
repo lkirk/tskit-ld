@@ -4,6 +4,7 @@ on: push
 
 jobs:
   build-base-container:
+    runs-on: ubuntu-24.04
     permissions:  # Sets the permissions granted to the `GITHUB_TOKEN`
       contents: read
       packages: write
@@ -37,6 +38,7 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
 
   build-derived-containers:
+    runs-on: ubuntu-24.04
     needs: build-base-container
     strategy:
       matrix:
@@ -79,6 +81,7 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
 
   build-standalone-containers:
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         container:
