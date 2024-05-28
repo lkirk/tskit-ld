@@ -17,9 +17,9 @@ def mean_stat_at_distances(stat, num_positions):
 
 
 def compute_mean_stat_for_recomb_distances(ts, positions, mu):
-    d2 = ts.ld_matrix(ts, stat="d2_unbiased", mode="branch", positions=[positions])
-    pi2 = ts.ld_matrix(ts, stat="pi2_unbiased", mode="branch", positions=[positions])
-    dz = ts.ld_matrix(ts, stat="dz_unbiased", mode="branch", positions=[positions])
+    d2 = ts.ld_matrix(stat="D2_unbiased", mode="branch", positions=[positions])
+    pi2 = ts.ld_matrix(stat="pi2_unbiased", mode="branch", positions=[positions])
+    dz = ts.ld_matrix(stat="Dz_unbiased", mode="branch", positions=[positions])
     return np.vstack(
         [
             mean_stat_at_distances(d2, len(positions)),
@@ -41,7 +41,7 @@ def main():
     Ne = 10_000
     mu = 2e-8
     r = 1.25e-5
-    sequence_length = 100
+    sequence_length = 60
 
     logging.basicConfig(
         format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO
