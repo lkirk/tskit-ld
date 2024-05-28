@@ -84,6 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        container:
           - name: spatial-ld-slim
             context: spatial-ld/sim/docker
 
