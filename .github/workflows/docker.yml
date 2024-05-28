@@ -29,7 +29,7 @@ jobs:
             # set latest tag for default branch
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Buidl and push ld-base
+      - name: Build and push ld-base
         uses: docker/build-push-action@v4
         with:
           context: docker/ld-base
@@ -39,6 +39,7 @@ jobs:
 
   build-derived-containers:
     runs-on: ubuntu-latest
+    needs: build-base-container
     strategy:
       matrix:
         container:
@@ -52,7 +53,6 @@ jobs:
       packages: write
 
     steps:
-      - needs: build-base-container
       - name: Checkout repository
         uses: actions/checkout@v3
 
