@@ -10,7 +10,7 @@ RUN \
 
 RUN \
 	set -ex; \
-	git clone https://github.com/lkirk/tskit -b two-locus-branch-stats-positions; \
+	git clone https://github.com/lkirk/tskit -b two-locus-staging; \
 	cd tskit/python; \
 	make; \
 	# install local build of tskit
