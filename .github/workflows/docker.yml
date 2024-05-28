@@ -4,6 +4,7 @@ on: push
 
 jobs:
   build-base-container:
+    runs-on: ubuntu-latest
     permissions:  # Sets the permissions granted to the `GITHUB_TOKEN`
       contents: read
       packages: write
