@@ -1,5 +1,4 @@
 #!/bin/bash
-set -eo pipefail
 
 if [[ -z "$1" ]]; then
     echo "ERROR: missing input params csv"
