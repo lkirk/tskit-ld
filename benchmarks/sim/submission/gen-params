@@ -26,8 +26,8 @@ num_branch_points = 30
 num_branch_reps = 1_000  # per point
 branch_params = dict(
     ne=10_000,
-    samples=500,
-    sequence_length=5_000,
+    samples=250,
+    sequence_length=1_000,
     recomb_rate=np.linspace(1e-8, 1e-6, num_branch_points),
     mu=0,  # not used in branch sims
 )
