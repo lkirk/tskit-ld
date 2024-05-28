@@ -4,15 +4,11 @@ on: push
 
 jobs:
   build-base-container:
-    runs-on: ubuntu-latest
     permissions:  # Sets the permissions granted to the `GITHUB_TOKEN`
       contents: read
       packages: write
 
     steps:
-      - uses: actions/setup-node@v4
-        with:  # GHA warns node 16 is deprecated soon
-          node-version: '20'
       - name: Checkout repository
         uses: actions/checkout@v3
 
@@ -41,7 +37,6 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
 
   build-derived-containers:
-    runs-on: ubuntu-latest
     needs: build-base-container
     strategy:
       matrix:
@@ -56,9 +51,6 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/setup-node@v4
-        with:  # GHA warns node 16 is deprecated soon
-          node-version: '20'
       - name: Checkout repository
         uses: actions/checkout@v3
 
@@ -87,7 +79,6 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
 
   build-standalone-containers:
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         container:
@@ -99,9 +90,6 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/setup-node@v4
-        with:  # GHA warns node 16 is deprecated soon
-          node-version: '20'
       - name: Checkout repository
         uses: actions/checkout@v3
 
