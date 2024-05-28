@@ -3,6 +3,7 @@
 import argparse
 import logging
 import os
+import subprocess
 from timeit import Timer
 
 import msprime
@@ -74,10 +75,13 @@ def main():
     timing_result = np.array(results, dtype=np.float64)
     timing_result /= args.repeat  # average for each round
 
+    cpu_info_raw = subprocess.run(['lscpu', '--json'], capture_output=True, check=False)
+
     np.savez_compressed(
         args.rep,
         timing_result=np.array(results, dtype=np.float64) / args.repeat, # average for each round
-        tree_stats=np.array(tree_stats, dtype=np.int64)
+        tree_stats=np.array(tree_stats, dtype=np.int64),
+        cpu_info=np.array(cpu_info_raw.stdout),  # sort of hacky, but store a vector of a big string
     )
 
 
