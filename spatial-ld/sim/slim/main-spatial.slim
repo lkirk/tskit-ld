@@ -1,0 +1,122 @@
+function (void)tlog(string$ message, [*$ s = NULL]) {
+	if (isNULL(s)) {
+		catn("LOG: " + date() + "_" + time() + " " + message);
+	}
+	else {
+		catn("LOG: " + date() + "_" + time() + ": tick=" + s.cycle + " " + message);
+	}
+}
+
+initialize() {
+	tlog("Simulation Start");
+	tlog("Outpath: " + outpath);
+	initializeSLiMModelType("nonWF");
+	initializeSLiMOptions(dimensionality="xy");
+	initializeTreeSeq(checkCoalescence=T);
+	
+	defineConstant("K", 5);
+	defineConstant("SD", sigma);  // sigma_D - dispersal distance
+	defineConstant("SI", sigma);  // sigma_I - interaction distance
+	defineConstant("SM", sigma);  // sigma_M - mate choice distance
+	
+	defineConstant("L", 4);       // mean lifetime
+	defineConstant("FECUN", 1/L); // mean fecundity
+	defineConstant("RHO", FECUN / ((1 + FECUN) * K));
+	
+	defineConstant("W", 25.0);  // width and height of xy space
+	defineConstant("G", 1e8);   // genome length
+	
+	initializeMutationRate(0);
+	initializeMutationType("m1", 0.5, "f", 0.0);
+	initializeGenomicElementType("g1", m1, 1.0);
+	initializeGenomicElement(g1, 0, G-1);
+	initializeRecombinationRate(1e-8);
+	
+	defineConstant("SIM_END", 2e6);
+	defineGlobal("COALESCED", F);
+	defineGlobal("IND_REC_COUNT", 0);
+	defineGlobal("IND_REC_LIM", 5);
+	
+	// competition
+	initializeInteractionType(1, "xy", reciprocal=T, maxDistance=3 * SI);
+	// maximum val, SD
+	i1.setInteractionFunction("n", 1.0 / (2 * PI * SI^2), SI);
+	
+	// mate choice
+	initializeInteractionType(2, "xy", reciprocal=T, maxDistance=3 * SM);
+	// maximum val, SD
+	i2.setInteractionFunction("n", 1.0 / (2 * PI * SM^2), SM);
+}
+
+1 first() {
+	initPopSize = asInteger(K * W * W);
+	sim.addSubpop("p1", initPopSize);
+	p1.setSpatialBounds(c(0, 0, W, W));
+	p1.individuals.setSpatialPosition(p1.pointUniform(initPopSize));
+}
+
+first() {
+	// create interaction snapshot, in preparation for reproduction
+	// i2 is our mate choice interaction
+	i2.evaluate(p1);
+}
+
+reproduction() {
+	// Mate choice by strength of i2 interaction. This does not preclude
+	// chosen mates from mating agian.
+	mate = i2.drawByStrength(individual, 1);
+	if (mate.size()) {
+		// Poisson number of offspring from chosen mate, with mean FECUN.
+		subpop.addCrossed(individual, mate, count=rpois(1, FECUN));
+	}
+}
+
+early() {
+	// Offspring dispersal
+	// Offspring of age 0 disperse
+	offspring = p1.subsetIndividuals(minAge=0);
+	pos = offspring.spatialPosition;
+	// Deviate offspring from their position using the reprising boundary cond
+	// The limit of their dispersal is infinite, but we describe the distance with SD
+	pos = p1.pointDeviated(offspring.size(), pos, "reprising", INF, "n", SD);
+	offspring.setSpatialPosition(pos);
+}
+
+1: late() {
+	i1.evaluate(p1);
+	inds = sim.subpopulations.individuals;
+	// competition =  i1.totalOfNeighborStrengths(inds);
+	competition = i1.localPopulationDensity(inds);
+	inds.fitnessScaling = pmin(0.95, 1/(1 + RHO * competition));
+}
+
+late() {
+	if (p1.individualCount == 0)  {
+		tlog("Population went extinct", sim);
+		sim.simulationFinished();
+	}
+	if ((sim.cycle % 1e4) == 0) {
+		tlog("", sim);
+		if (COALESCED) {
+			tlog("Recording Individuals " + (IND_REC_COUNT + 1) + "/" + IND_REC_LIM);
+			sim.treeSeqRememberIndividuals(p1.individuals);
+			defineGlobal("IND_REC_COUNT", IND_REC_COUNT + 1);
+			if (IND_REC_COUNT == IND_REC_LIM) {
+				tlog("Simulation End");
+				tlog("Memory usage: " + usage());
+				sim.simulationFinished();
+				sim.treeSeqOutput(outpath);
+			}
+		} else {
+			if(sim.treeSeqCoalesced()) {
+				tlog("Simulation has coalesced, starting to record", sim);
+				defineGlobal("COALESCED", T);
+			}
+		}
+	}
+}
+
+SIM_END late() {
+	tlog("Simulation End; No Coalescence", sim);
+	tlog("Memory usage: " + usage());
+}
