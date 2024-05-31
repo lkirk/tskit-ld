@@ -2,7 +2,7 @@ initialize() {
 	print("Simulation Start " + date() + "_" + time());
 	initializeSLiMModelType("nonWF");
 	initializeSLiMOptions(dimensionality="xy");
-	initializeTreeSeq();
+	initializeTreeSeq(checkCoalescence=T);
 
 	defineConstant("id", getSeed());
 	defineConstant("K", 5);  // carrying-capacity per unit square (roughly)
@@ -17,8 +17,7 @@ initialize() {
 	initializeMutationType("m1", 0.5, "f", 0.0);
 	initializeGenomicElementType("g1", m1, 1.0);
 	initializeGenomicElement(g1, 0, G-1);
-	// initializeMutationRate(1e-8);
-	initializeMutationRate(0);
+	initializeMutationRate(mu);
 	initializeRecombinationRate(1e-8);
 
 	// spatial competition
@@ -82,25 +81,16 @@ early() {
 
 2: late() {
 	if ((sim.cycle % 1e4)==0) {
-		print(date() + "_" + time() + " " + sim.cycle);
-	}
-	if ((sim.cycle % 1e5)==0) {
-		outname=outpath + "/" + id + "_" + sim.cycle + ".trees";
-		sim.treeSeqOutput(outname);
+		catn(date() + "_" + time() + " " + sim.cycle + " " + sim.treeSeqCoalesced());
 	}
 }
 
 NUMCYCLES late() {
 	outname=outpath + "/" + id + "_" + sim.cycle + ".trees";
-	sim.treeSeqOutput(outname);
+	sim.treeSeqOutput(
+		outname,
+		metadata=Dictionary("generation_times", GENTIME)
+	);
 	print("Wrote tree sequence: " + outname);
-	lines = NULL;
-	for (val in GENTIME) {
-		lines = c(lines, format("%f\n", val));
-	}
-	if (!writeFile(outpath + "/gentimes.txt", paste0(lines))) {
-		stop("Error writing file: " + outpath + "/gentimes.txt");
-	}
-	print("Simulation End " + date() + "_" + time());
 	sim.simulationFinished();
 }
