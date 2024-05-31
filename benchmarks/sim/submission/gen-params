@@ -88,7 +88,7 @@ with open("params.csv", "w") as fp:
         num_branch_batches, num_per_batch
     )
     for i, rep, start, stop in iter_rep(
-        num_per_batch, total_branch_reps, total_site_reps
+        num_per_batch, total_branch_reps, num_site_batches
     ):
         recomb = recombs[i].copy()
         recomb.sort()
