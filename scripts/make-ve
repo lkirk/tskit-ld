@@ -5,9 +5,9 @@ set -euo pipefail
 python -m venv ve
 source ve/bin/activate
 pip install -U pip setuptools
-pip install ipdb ipython ipykernel matplotlib pyslim joblib
-# used to validate the expected values of branch stats
-pip install moments
+pip install ipdb ipython ipykernel matplotlib pyslim joblib pandas
+# moments used to validate the expected values of branch stats
+pip install 'git+ssh://git@github.com/MomentsLD/moments.git@v1.2.0'
 cd ve
 git clone -b two-locus-staging git@github.com:lkirk/tskit.git lkirk-tskit
 cd lkirk-tskit/python
