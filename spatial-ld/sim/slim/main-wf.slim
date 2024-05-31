@@ -1,0 +1,103 @@
+initialize() {
+	catn("Simulation Start " + date() + "_" + time());
+	initializeSLiMOptions(dimensionality="xy");
+	initializeTreeSeq(checkCoalescence=T);
+
+	defineConstant("id", getSeed());
+	defineConstant("K", 5);  // carrying-capacity per unit square (roughly)
+	defineConstant("SD", sigma);  // sigma_D, the dispersal distance
+	defineConstant("SI", sigma);  // sigma_I, the spatial interaction distance
+	defineConstant("SM", SI);  // sigma_M, the mate choice distance
+	defineConstant("L", 4);    // mean lifetime at stationarity
+	defineConstant("W", 25);  // width and height of the simulated area
+	defineConstant("FECUN", 1/L); // mean fecundity
+	defineConstant("RHO", FECUN/((1 + FECUN) * K)); // constant in spatial competition function
+	// defineConstant("N", 1000);
+
+	initializeMutationType("m1", 0.5, "f", 0.0);
+	initializeGenomicElementType("g1", m1, 1.0);
+	initializeGenomicElement(g1, 0, G-1);
+	// initializeMutationRate(1e-8);
+	initializeMutationRate(0);
+	initializeRecombinationRate(1e-8);
+
+	// spatial competition
+	initializeInteractionType(1, "xy", reciprocal=T, maxDistance=SI * 3);
+	i1.setInteractionFunction("n", 1.0/(2 * PI * SI^2), SI);
+
+	// mate choice
+	initializeInteractionType(2, "xy", reciprocal=T, maxDistance=SM * 3);
+	i2.setInteractionFunction("n", 1.0/(2 * PI * SM^2), SM);
+}
+
+
+mateChoice() {
+	return i2.strength(individual);
+}
+modifyChild() {
+	// p1.deviatePositions(NULL, "reprising", INF, "n", SD);
+	pos = parent1.spatialPosition + rnorm(2, 0, SD);
+	if (p1.pointInBounds(pos)) {
+		child.setSpatialPosition(pos);
+	}
+	return T;
+}
+
+1 early() {
+	sim.addSubpop("p1", asInteger(K * W * W));
+	p1.setSpatialBounds(c(0, 0, W, W));
+	p1.individuals.setSpatialPosition(p1.pointUniform(K * W * W));
+	i1.evaluate(sim.subpopulations);
+}
+
+early() {
+	i1.evaluate(p1);
+	inds = p1.individuals;
+	competition = i1.totalOfNeighborStrengths(inds);
+	inds.fitnessScaling = pmin(0.95, 1/(1 + RHO * competition));
+	// scale fitness at edges
+	inds.fitnessScaling = inds.fitnessScaling
+				* pmin(sqrt(inds.x/SI), 1.0)
+				* pmin(sqrt(inds.y/SI), 1.0)
+				* pmin(sqrt((W - inds.x)/SI), 1.0)
+				* pmin(sqrt((W - inds.y)/SI), 1.0);
+	i2.evaluate(p1);
+}
+
+1: late() {
+	// evaluate() Snapshots model state in preparation for the use of the interaction, for the receiver and exerter
+	// subpopulations specified by subpops. This method will discard all previously cached data for the
+	// subpopulation(s), and will cache the current spatial positions of all individuals they contain (so that
+	// the spatial positions of those individuals may then change without disturbing the state of the
+	// interaction at the moment of evaluation). It will also cache which individuals in the subpopulation are
+	// eligible to act as exerters, according to the configured exerter constraints, but it will not cache such
+	// eligibility information for receiver constraints (which are applied at the time a spatial query is made).
+	// Particular interaction distances and strengths are not computed by evaluate(), and interaction()
+	// callbacks will not be called in response to this method; that work is deferred until required to satisfy a
+	// query (at which point the tick and cycle counters may have advanced, so be careful with the tick
+	// ranges used in de ning interaction() callbacks).
+	// You must explicitly call evaluate() at an appropriate time in the tick cycle before the interaction is
+	// used, but after any relevant changes have been made to the population. SLiM will invalidate any
+	// existing interactions after any portion of the tick cycle in which new individuals have been born or
+	// existing individuals have died. In a WF model, this occurs just before late() events execute so late()
+	// events are often the appropriate place to put evaluate() calls, but first() or early() events can work
+	// too if the interaction is not needed until that point in the tick cycle anyway.
+
+	// to be ready for mate choice
+	i2.evaluate(p1);
+}
+
+2: late() {
+	if ((sim.cycle % 1e4)==0) {
+		catn(date() + "_" + time() + " " + sim.cycle + " " + sim.treeSeqCoalesced());
+	}
+}
+
+2000000 late() {
+	outname=outpath + "/" + id + "_" + sim.cycle + ".trees";
+	sim.treeSeqOutput(outname);
+	catn("Wrote tree sequence: " + outname);
+	catn("Memory usage: " + usage());
+	catn("Simulation End " + date() + "_" + time());
+	sim.simulationFinished();
+}
