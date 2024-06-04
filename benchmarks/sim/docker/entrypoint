@@ -30,8 +30,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("params_file", type=Path)
     parser.add_argument("out_prefix", type=Path)
+    parser.add_argument("--strip-prefix", action="store_true", help="Strip prefix from input file")
     args = parser.parse_args()
 
+    if args.strip_prefix:
+        args.params_file = Path(args.params_file.name)
     if not args.params_file.exists():
         raise ValueError(f"{args.params_file} does not exist")
     with open(args.params_file) as fp:
