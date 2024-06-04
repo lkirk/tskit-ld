@@ -1,7 +1,12 @@
 #!/usr/bin/env python
 
+import json
+from pathlib import Path
+
 import numpy as np
-import csv
+
+
+PARAMS_DIR = Path("params")
 
 
 def iter_rep(reps, tot, start):
@@ -17,9 +22,9 @@ num_site_reps = 1_000  # per point
 site_params = dict(
     ne=10_000,
     samples=500,
-    sequence_length=5_000,
+    sequence_length=50_000,
     recomb_rate=1e-5,
-    mu=np.linspace(1e-7, 1e-3, num=num_site_points),
+    mu=np.linspace(1e-7, 1e-5, num=num_site_points),
 )
 
 num_branch_points = 30
@@ -28,7 +33,7 @@ branch_params = dict(
     ne=10_000,
     samples=250,
     sequence_length=1_000,
-    recomb_rate=np.linspace(1e-8, 1e-6, num_branch_points),
+    recomb_rate=np.linspace(1e-8, 5e-6, num_branch_points),
     mu=0,  # not used in branch sims
 )
 
@@ -49,60 +54,49 @@ assert (
     num_branch_batches % num_per_batch == 0
 ), "branch batch size is not compatible with num replicates"
 
-
-# # ./entrypoint site 1 10_000 1e-5 1e-4 100 1_000 4-5-6-7-8-9
-rep = 0
-seeds_start = 0
-
-# in order of
-sites_constant = [
-    site_params["ne"],
-    site_params["samples"],
-    site_params["sequence_length"],
-    site_params["recomb_rate"],
-]
+PARAMS_DIR.mkdir()
 
 # we get short and long running in the same rep
-with open("params.csv", "w") as fp:
-    writer = csv.writer(fp, quoting=csv.QUOTE_NONE)
-    mus = np.tile(site_params["mu"], num_site_reps).reshape(num_site_batches, num_per_batch)
-    for i, rep, start, stop in iter_rep(num_per_batch, total_site_reps, 0):
-        mu = mus[i].copy()
-        mu.sort()
-        mu_str = "/".join(map(str, mu))
-        seed_str = "-".join(map(str, seeds[start:stop]))
-        writer.writerow(
-            [
-                "site",
-                rep,
-                site_params["ne"],
-                site_params["recomb_rate"],
-                mu_str,
-                site_params["samples"],
-                site_params["sequence_length"],
-                seed_str,
-            ]
+mus = np.tile(site_params["mu"], num_site_reps).reshape(num_site_batches, num_per_batch)
+for i, rep, start, stop in iter_rep(num_per_batch, total_site_reps, 0):
+    mu = mus[i].copy()
+    mu.sort()
+    assert not (out_file := PARAMS_DIR / f"input_{rep}.json").exists()
+    with open(out_file, "w") as fp:
+        json.dump(
+            {
+                "mode": "site",
+                "rep": rep,
+                "ne": site_params["ne"],
+                "r": site_params["recomb_rate"],
+                "mu": mu.tolist(),
+                "samples": site_params["samples"],
+                "sequence_length": site_params["sequence_length"],
+                "seeds": seeds[start:stop].tolist(),
+            },
+            fp,
+            indent=2,
         )
 
-    recombs = np.tile(branch_params["recomb_rate"], num_branch_reps).reshape(
-        num_branch_batches, num_per_batch
-    )
-    for i, rep, start, stop in iter_rep(
-        num_per_batch, total_branch_reps, num_site_batches
-    ):
-        recomb = recombs[i].copy()
-        recomb.sort()
-        recomb_str = "/".join(map(str, recomb))
-        seed_str = "-".join(map(str, seeds[start:stop]))
-        writer.writerow(
-            [
-                "branch",
-                rep,
-                branch_params["ne"],
-                recomb_str,
-                branch_params["mu"],
-                branch_params["samples"],
-                branch_params["sequence_length"],
-                seed_str,
-            ]
+recombs = np.tile(branch_params["recomb_rate"], num_branch_reps).reshape(
+    num_branch_batches, num_per_batch
+)
+for i, rep, start, stop in iter_rep(num_per_batch, total_branch_reps, num_site_batches):
+    recomb = recombs[i].copy()
+    recomb.sort()
+    assert not (out_file := PARAMS_DIR / f"input_{rep}.json").exists()
+    with open(out_file, "w") as fp:
+        json.dump(
+            {
+                "mode": "branch",
+                "rep": rep,
+                "ne": branch_params["ne"],
+                "r": recomb.tolist(),
+                "mu": branch_params["mu"],
+                "samples": branch_params["samples"],
+                "sequence_length": branch_params["sequence_length"],
+                "seeds": seeds[start:stop].tolist(),
+            },
+            fp,
+            indent=2,
         )
