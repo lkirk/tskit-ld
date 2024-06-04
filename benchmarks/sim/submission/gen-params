@@ -22,7 +22,7 @@ num_site_reps = 1_000  # per point
 site_params = dict(
     ne=10_000,
     samples=500,
-    sequence_length=50_000,
+    sequence_length=10_000,
     recomb_rate=1e-5,
     mu=np.linspace(1e-7, 1e-5, num=num_site_points),
 )
