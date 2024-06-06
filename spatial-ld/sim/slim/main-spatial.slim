@@ -3,46 +3,58 @@ function (void)tlog(string$ message, [*$ s = NULL]) {
         catn(paste("LOG:",  date() + "_" + time(),  message));
     }
     else {
-        catn(paste("LOG:", date() + "_" + time(), ": tick=" + s.cycle, message));
+        catn(paste("LOG:", date() + "_" + time() + " tick=" + s.cycle, message));
     }
 }
 
 function (object<Dictionary>$)setupParams(void) {
+    // Read params from a json file (these can be overwritten on the
+    // command line with -d arguments. We require that the json file exists
+    // unless you specify -d NO_PARAM_FILE=T
     requiredParams = c(
-        "K",           // carrying capacity
-        "SD",          // sigma_D - dispersal distance
-        "SI",          // sigma_I - interaction distance
-        "SM",          // sigma_M - mate choice distance
-        "L",           // mean lifetime
-        "W",           // width and height of xy space
-        "G",           // genome length
-        "MU",          // mutation rate
-        "R",           // recombination rate
-        "SIM_END",     // absolute number of ticks to run for
-        "IND_REC_LIM", // number of times to record individuals
-        "outpath"      // path to output tree sequence
+        "K",               // carrying capacity
+        "SD",              // sigma_D - dispersal distance
+        "SI",              // sigma_I - interaction distance
+        "SM",              // sigma_M - mate choice distance
+        "L",               // mean lifetime
+        "W",               // width and height of xy space
+        "G",               // genome length
+        "MU",              // mutation rate
+        "R",               // recombination rate
+        "SIM_END",         // absolute number of ticks to run for
+        "IND_RECORD_LAG",  // time to wait before recording (N generations)
+        "IND_RECORD_LIM",  // number of times to record individuals
+        "IND_RECORD_FREQ", // frequency of individual recording (generations)
+        "OUTPATH"          // path to output tree sequence
     );
-    intParams = c("G", "SIM_END");  // params to be cast to integers
+    // params to be cast to integers
+    intParams = c("G", "SIM_END", "IND_RECORD_LAG", "IND_RECORD_LIM", "IND_RECORD_FREQ");
 
-    if (!exists("param_file")) {
-        stop(paste("You must define param_file for this simulation",
-                   "(use -d 'param_file=\"your_file\"')"));
-    }
-    if (!fileExists(param_file)) {
-        stop(paste("Param file does not exist:", param_file));
-    }
-
-    params = Dictionary(readFile(param_file));
-    for (k in params.allKeys) {
-        if (!exists(k)) {
-            if (any(k == intParams)) {
-                defineConstant(k, asInteger(params.getValue(k)));
-            } else {
-                defineConstant(k, params.getValue(k));
-            }
-        } else {
-            params.setValue(k, executeLambda(k + ";"));
+    paramsFileRequired = exists("NO_PARAM_FILE") ? !(NO_PARAM_FILE == T) else T;
+    if (paramsFileRequired) {
+        if (!exists("PARAM_FILE")) {
+            stop(paste("You must define PARAM_FILE for this simulation",
+                       "(use -d 'PARAM_FILE=\"your_file\"') or you can",
+                       "turn off this check with -d NO_PARAM_FILE=T and specify",
+                       "all required parameters from the command line"));
         }
+        if (!fileExists(PARAM_FILE)) {
+            stop(paste("Param file does not exist:", PARAM_FILE));
+        }
+        params = Dictionary(readFile(PARAM_FILE));
+        for (k in params.allKeys) {
+            // Ensure certain parameters are ints.
+            if (any(k == intParams)) {
+                params.setValue(k, asInteger(params.getValue(k)));
+            }
+            // ignore parameters that are already defined (CLI or elsewhere)
+            if (!exists(k)) {
+                defineConstant(k, params.getValue(k));
+            } else {
+                params.setValue(k, executeLambda(k + ";"));
+            }
+        }
+        params.setValue("SEED", getSeed());  // for logging purposes
     }
 
     foundParams = sapply(requiredParams, "exists(applyValue);");
@@ -54,7 +66,7 @@ function (object<Dictionary>$)setupParams(void) {
 }
 
 initialize() {
-    PARAMS = setupParams();
+    defineConstant("PARAMS", setupParams());
 
     tlog("Simulation Start");
     tlog(paste("Working directory", getwd()));
@@ -84,6 +96,15 @@ initialize() {
     initializeInteractionType(2, "xy", reciprocal=T, maxDistance=3 * SM);
     // maximum val, SD
     i2.setInteractionFunction("n", 1.0 / (2 * PI * SM^2), SM);
+
+    // generation time recording
+    defineGlobal("GENTIME", rep(NAN, SIM_END));
+
+    // individual recording
+    defineGlobal("SAMP_TIMES", rep(NAN, IND_RECORD_LIM));
+    defineGlobal("IND_RECORD_TICKS", INF);
+    defineGlobal("IND_RECORD_START", INF);
+    defineGlobal("IND_RECORD_NEXT", INF);
 }
 
 1 first() {
@@ -112,7 +133,7 @@ reproduction() {
 early() {
     // Offspring dispersal
     // Offspring of age 0 disperse
-    offspring = p1.subsetIndividuals(minAge=0);
+    offspring = p1.subsetIndividuals(maxAge=0);
     pos = offspring.spatialPosition;
     // Deviate offspring from their position using the reprising boundary cond
     // The limit of their dispersal is infinite, but we describe the distance with SD
@@ -128,6 +149,12 @@ early() {
     inds.fitnessScaling = pmin(0.95, 1/(1 + RHO * competition));
 }
 
+1: late() {
+    // we record generation timem after mortality
+    gentime = mean(p1.individuals.meanParentAge);
+    GENTIME[community.tick - 1] = !isNULL(gentime) ? gentime else NAN;
+}
+
 late() {
     if (p1.individualCount == 0)  {
         tlog("Population went extinct", sim);
@@ -135,27 +162,84 @@ late() {
     }
     if ((sim.cycle % 1e4) == 0) {
         tlog("", sim);
-        if(sim.treeSeqCoalesced()) {
-            tlog("Simulation has coalesced, starting to record", sim);
-            defineGlobal("COALESCED", T);
+    }
+    // testing block
+    // if ((sim.cycle == 100)) {
+    //     defineGlobal("COALESCED", T);
+    //     setRecordingInterval(sim, p1);
+    // }
+    if ((sim.cycle % 5e4) == 0) {
+        if(!COALESCED) {  // only check if we haven't coalesced, this is expensive
+            if(sim.treeSeqCoalesced()) {
+                tlog("Simulation has coalesced, starting to record");
+                defineGlobal("COALESCED", T);
+                setRecordingInterval(sim, p1);
+            }
         }
     }
-    if ((sim.cycle % 1e5) == 0) {
-        if (COALESCED) {
-            tlog(paste("Recording Individuals", (IND_REC_COUNT + 1) + "/" + IND_REC_LIM));
-            sim.treeSeqRememberIndividuals(p1.individuals);
-            defineGlobal("IND_REC_COUNT", IND_REC_COUNT + 1);
-            if (IND_REC_COUNT == IND_REC_LIM) {
-                tlog("Simulation End");
-                tlog(paste("Memory usage:", usage()));
-                sim.simulationFinished();
-                sim.treeSeqOutput(outpath, metadata=PARAMS);
+    // record individuals after IND_RECORD_LAG * N generations
+    if (sim.cycle > IND_RECORD_START) {
+        // first cycle after lag, set the next record cycle
+        if (!isInteger(IND_RECORD_NEXT)) {
+            defineGlobal("IND_RECORD_NEXT", sim.cycle + IND_RECORD_TICKS);
+        }
+        if ((sim.cycle - IND_RECORD_NEXT) == 0) {
+            recordIndividuals(sim, p1);
+            if (IND_REC_COUNT == IND_RECORD_LIM) {
+                endSimulation(sim, community, coalesced=T);
             }
+            defineGlobal("IND_RECORD_NEXT", sim.cycle + IND_RECORD_TICKS);
         }
     }
 }
 
 SIM_END late() {
-    tlog("Simulation End; No Coalescence", sim);
+    endSimulation(sim, community, coalesced=F);
+}
+
+function (void)recordIndividuals(object<Species>$ s, object<Subpopulation>$ p) {
+    tlog(paste("Recording Individuals", (IND_REC_COUNT + 1) + "/" + IND_RECORD_LIM));
+    SAMP_TIMES[IND_REC_COUNT] = s.cycle;
+    s.treeSeqRememberIndividuals(p1.individuals);
+    defineGlobal("IND_REC_COUNT", IND_REC_COUNT + 1);
+}
+
+function (void)endSimulation(object<Species>$ s, object<Community> c, logical$ coalesced) {
+    if (!coalesced) {
+        tlog("Simulation End; No Coalescence");
+    } else {
+        tlog("Simulation End");
+    }
+    s.simulationFinished();
+    // trim excess NANs from the end of GENTIME
+    for (i in rev(seqAlong(GENTIME))) {
+        if (!isNAN(GENTIME[i])) {
+            break;
+        }
+    }
+    GENTIME = GENTIME[0:i];
+    s.treeSeqOutput(
+        OUTPATH,
+        metadata=Dictionary(
+            "params", PARAMS,
+            "generation_times", GENTIME,
+            "sampling_times", SAMP_TIMES
+        )
+    );
+    tlog(paste("Wrote trees to:", OUTPATH));
     tlog(paste("Memory usage:", usage()));
+    c.outputUsage();
+}
+
+function (void)setRecordingInterval(object<Species>$ s, object<Subpopulation>$ p) {
+    // Compute the generation time from the 50 most recent ticks
+    genTime = mean(GENTIME[(s.cycle-51):(s.cycle-2)]);
+    intGenTime = asInteger(round(genTime));
+    // Set the interval at which we will record (in units of generation)
+    defineGlobal("IND_RECORD_TICKS", intGenTime * IND_RECORD_FREQ);
+    // Set the time at which we'll start recording
+    defineGlobal("IND_RECORD_START", s.cycle + (intGenTime * IND_RECORD_LAG * p1.individualCount));
+    tlog(paste("Measured", genTime,
+        "ticks per generation, set recording interval to", IND_RECORD_TICKS,
+        "starting to record at:", IND_RECORD_START));
 }
