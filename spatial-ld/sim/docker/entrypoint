@@ -35,7 +35,7 @@ if [[ "$STRIP_PREFIX" = true ]]; then
     PARAM_FILE="$(basename "$PARAM_FILE")"
 fi
 
-OUTPATH="$(jq -r '.OUTPATH' simplification_test_params.json)"
+OUTPATH="$(jq -r '.OUTPATH' "$PARAM_FILE")"
 if [[ -z "$OUTPATH" ]]; then
     echo "Did not find an out tree sequence in params file"
     exit 1
