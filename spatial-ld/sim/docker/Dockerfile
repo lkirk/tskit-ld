@@ -4,7 +4,7 @@ FROM debian:trixie-slim AS base
 COPY --from=slim /usr/local/bin /usr/local/bin
 
 ADD entrypoint /opt
-ADD main.slim /opt
+ADD main-spatial.slim /opt
 
 # workdir blank so that mounts don't clobber
 WORKDIR /analysis
