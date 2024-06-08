@@ -73,6 +73,7 @@ initialize() {
     defineConstant("PARAMS", setupParams());
 
     tlog("Simulation Start");
+    tlog(paste("Current Seed", getSeed()));
     tlog(paste("Working directory", getwd()));
     tlog(paste("Parameters", PARAMS.serialize("pretty")));
     initializeSLiMModelType("nonWF");
@@ -148,7 +149,6 @@ early() {
 1: late() {
     i1.evaluate(p1);
     inds = sim.subpopulations.individuals;
-    // competition =  i1.totalOfNeighborStrengths(inds);
     competition = i1.localPopulationDensity(inds);
     inds.fitnessScaling = pmin(0.95, 1/(1 + RHO * competition));
 }
@@ -167,11 +167,6 @@ late() {
     if ((sim.cycle % 1e4) == 0) {
         tlog("", sim);
     }
-    // testing block
-    // if ((sim.cycle == 100)) {
-    //     defineGlobal("COALESCED", T);
-    //     setRecordingInterval(sim, p1);
-    // }
     if ((sim.cycle % 5e4) == 0) {
         if(!COALESCED) {  // only check if we haven't coalesced, this is expensive
             if(sim.treeSeqCoalesced()) {
