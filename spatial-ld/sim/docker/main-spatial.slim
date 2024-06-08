@@ -54,7 +54,11 @@ function (object<Dictionary>$)setupParams(void) {
                 params.setValue(k, executeLambda(k + ";"));
             }
         }
-        params.setValue("SEED", getSeed());  // for logging purposes
+        if (!exists("SEED")) {
+            params.setValue("SEED", getSeed());  // to store as metadata
+        } else {
+            setSeed(SEED);
+        }
     }
 
     foundParams = sapply(requiredParams, "exists(applyValue);");

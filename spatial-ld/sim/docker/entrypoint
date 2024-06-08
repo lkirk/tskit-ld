@@ -35,5 +35,15 @@ if [[ "$STRIP_PREFIX" = true ]]; then
     PARAM_FILE="$(basename "$PARAM_FILE")"
 fi
 
-echo 'Running:' slim -d "PARAM_FILE="'"'"$PARAM_FILE"'"'"" /opt/main.slim
+OUTPATH="$(jq -r '.OUTPATH' simplification_test_params.json)"
+if [[ -z "$OUTPATH" ]]; then
+    echo "Did not find an out tree sequence in params file"
+    exit 1
+fi
+
+set -x
+
 slim -d "PARAM_FILE="'"'"$PARAM_FILE"'"'"" /opt/main.slim
+tszip "$OUTPATH"
+echo "Final compressed output file:"
+ls "${OUTPATH}.tsz"
