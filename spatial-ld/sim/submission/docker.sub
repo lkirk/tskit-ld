@@ -14,8 +14,8 @@ Requirements            = (Target.HasCHTCStaging == true)
 request_cpus            = 1
 request_memory          = 4GB
 request_disk            = 1GB
-output                  = output-$(Cluster)/logs/out/$(Cluster)_$(Process).out
-error                   = output-$(Cluster)/logs/err/$(Cluster)_$(Process).err
+output                  = output-$(Cluster)/logs/out/$(Process).log
+error                   = output-$(Cluster)/logs/err/$(Process).log
 log                     = output-$(Cluster)/cluster.log
 
 queue FILE matching params/*.json
