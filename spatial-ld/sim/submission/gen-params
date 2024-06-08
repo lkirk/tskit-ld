@@ -1,0 +1,61 @@
+#!/usr/bin/env python
+
+import json
+from pathlib import Path
+
+import numpy as np
+
+RNG = np.random.RandomState(23)
+
+NUM_REPS = 50
+
+MODEL_PARAMS = {
+    "K": 5,  # carrying capacity
+    "L": 4,  # mean lifetime
+    "W": 25.0,  # width and height of xy space
+    "G": 1e8,  # genome length
+    "MU": 0,  # mutation rate
+    "R": 1e-8,  # recombination rate
+    "SIM_END": 2e6,  # absolute number of ticks to run for
+    "IND_RECORD_LAG": 10,  # time to wait before recording (N generations)
+    "IND_RECORD_LIM": 20,  # number of times to record individuals
+    "IND_RECORD_FREQ": 200,  # frequency of individual recording (generations)
+    "OUTPATH": "out.trees",  # path to output tree sequence
+}
+
+SIGMAS = np.repeat(np.linspace(0.35, 1.5, 10), 50)
+P1 = [
+    {
+        "SD": d,  # sigma_D - dispersal distance
+        "SM": 0.4,  # sigma_M - mate choice distance
+        "SI": 0.4,  # sigma_I - interaction distance
+    }
+    for d in SIGMAS
+]
+P2 = [
+    {
+        "SD": d,  # sigma_D - dispersal distance
+        "SM": d,  # sigma_M - mate choice distance
+        "SI": 0.4,  # sigma_I - interaction distance
+    }
+    for d in SIGMAS
+]
+P3 = [
+    {
+        "SD": d,  # sigma_D - dispersal distance
+        "SM": d,  # sigma_M - mate choice distance
+        "SI": d,  # sigma_I - interaction distance
+    }
+    for d in SIGMAS
+]
+
+PARAM_DIR = Path("params")
+PARAM_DIR.mkdir()
+
+SEEDS = RNG.randint(0, 2**31)
+for i, p in enumerate(P1 + P2 + P3):
+    with open(PARAM_DIR / f"{i}.json", "w") as fp:
+        json.dump({**p, **MODEL_PARAMS, "SEED": RNG.randint(0, 2**31)}, fp, indent=2)
+
+
+# {"SD": 0.4, "SI": 0.4, "SM": 0.4, "SEED"}

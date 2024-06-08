@@ -1,0 +1,17 @@
+{
+  "SD": 0.6055555555555555,
+  "SM": 0.4,
+  "SI": 0.4,
+  "K": 5,
+  "L": 4,
+  "W": 25.0,
+  "G": 100000000.0,
+  "MU": 0,
+  "R": 1e-08,
+  "SIM_END": 2000000.0,
+  "IND_RECORD_LAG": 10,
+  "IND_RECORD_LIM": 20,
+  "IND_RECORD_FREQ": 200,
+  "OUTPATH": "out.trees",
+  "SEED": 993216791
+}
