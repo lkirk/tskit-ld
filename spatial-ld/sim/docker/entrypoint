@@ -1,31 +1,39 @@
 #!/bin/bash
 
-set -euo pipefail
+set -eo pipefail
 
-OUTPATH="out"
-SEED=""
-for arg in $(seq 1 $#); do
-    # if [[ "${!arg}" == outpath=* ]]; then
-    # 	OUTPATH=$(tr -d "'" <<<"${!arg/outpath=/}")
-    # fi
-    if [[ "${!arg}" == "-s" ]]; then
-	next_arg=$((arg + 1))
-	SEED="${!next_arg}"
-    fi
+# TODO: pass through args to SLiM??
+
+ARGS=$(getopt -o h,s,p: --longoptions help,strip-prefix,param: -n entrypoint -- "$@")
+
+usage () {
+    echo "usage: entrypoint --param <param_path> [--strip-prefix]"
+    exit 1
+}
+
+eval set -- "$ARGS"
+
+STRIP_PREFIX=false
+PARAM_FILE=''
+while true; do
+    case "$1" in
+	-s | --strip-prefix) STRIP_PREFIX=true; shift ;;
+	-p | --param) PARAM_FILE="$2"; shift 2;;
+	-h | --help) usage;;
+	-- ) shift; break;;
+	* ) break;;
+    esac
 done
 
-# if [[ -z "$OUTPATH" ]]; then
-#     echo "No output path specified, use -d outpath=\"'/path/to/output'\"" >&2
-#     exit 1
-# fi
-if [[ -z "$SEED" ]]; then
-    echo "No seed specified, use -s <some integer>" >&2
-    exit 1
+if [[ -z "$PARAM_FILE" ]]; then
+    echo "ERROR: param file is a required argument"
+    usage
 fi
 
-echo "Running slim with the following parameters:" "$@" -d "outpath="'"'"$OUTPATH"'"'"" /opt/main.slim
-set -x
-mkdir -p "$OUTPATH"
-slim "$@" -d "outpath="'"'"$OUTPATH"'"'"" /opt/main.slim
-tar -czvf "${SEED}.tar.gz" "${OUTPATH}"
-rm -r "${OUTPATH}"
+if [[ "$STRIP_PREFIX" = true ]]; then
+    echo "Stripping params file prefix"
+    PARAM_FILE="$(basename "$PARAM_FILE")"
+fi
+
+echo 'Running:' slim -d "PARAM_FILE="'"'"$PARAM_FILE"'"'"" /opt/main.slim
+slim -d "PARAM_FILE="'"'"$PARAM_FILE"'"'"" /opt/main.slim
