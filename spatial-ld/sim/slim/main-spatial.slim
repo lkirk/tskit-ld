@@ -17,7 +17,8 @@ function (object<Dictionary>$)setupParams(void) {
         "SI",              // sigma_I - interaction distance
         "SM",              // sigma_M - mate choice distance
         "L",               // mean lifetime
-        "W",               // width and height of xy space
+        "W",               // width of xy space
+        "H",               // height of xy space
         "G",               // genome length
         "MU",              // mutation rate
         "R",               // recombination rate
@@ -113,9 +114,9 @@ initialize() {
 }
 
 1 first() {
-    initPopSize = asInteger(K * W * W);
+    initPopSize = asInteger(K * W * H);
     sim.addSubpop("p1", initPopSize);
-    p1.setSpatialBounds(c(0, 0, W, W));
+    p1.setSpatialBounds(c(0, 0, W, H));  // x0, y0, x1, y1
     p1.individuals.setSpatialPosition(p1.pointUniform(initPopSize));
 }
 

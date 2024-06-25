@@ -12,7 +12,8 @@ NUM_REPS = 50
 MODEL_PARAMS = {
     "K": 5,  # carrying capacity
     "L": 4,  # mean lifetime
-    "W": 25.0,  # width and height of xy space
+    "W": 35.0,  # width of xy space
+    "H": 15.0,  # height of xy space
     "G": 1e8,  # genome length
     "MU": 0,  # mutation rate
     "R": 1e-8,  # recombination rate
@@ -25,7 +26,7 @@ MODEL_PARAMS = {
 
 
 def gen_dispersal_params(sigmas):
-    P1 = [
+    return [
         {
             "SD": d,  # sigma_D - dispersal distance
             "SM": 0.4,  # sigma_M - mate choice distance
@@ -33,41 +34,15 @@ def gen_dispersal_params(sigmas):
         }
         for d in sigmas
     ]
-    P2 = [
-        {
-            "SD": d,  # sigma_D - dispersal distance
-            "SM": d,  # sigma_M - mate choice distance
-            "SI": 0.4,  # sigma_I - interaction distance
-        }
-        for d in sigmas
-    ]
-    P3 = [
-        {
-            "SD": d,  # sigma_D - dispersal distance
-            "SM": d,  # sigma_M - mate choice distance
-            "SI": d,  # sigma_I - interaction distance
-        }
-        for d in sigmas
-    ]
-    return P1 + P2 + P3
 
 
 PARAM_DIR = Path("params")
 PARAM_DIR.mkdir()
 
 SEEDS = RNG.randint(0, 2**31)
-SIGMAS = np.repeat(np.linspace(0.35, 1.5, 10), 50)
+REPS = 150
+SIGMAS = np.repeat(np.linspace(0.35, 3, 25), REPS)
 i = 0
 for i, p in enumerate(gen_dispersal_params(SIGMAS)):
     with open(PARAM_DIR / f"{i}.json", "w") as fp:
         json.dump({**p, **MODEL_PARAMS, "SEED": RNG.randint(0, 2**31)}, fp, indent=2)
-
-# Second batch
-i += 1
-SIGMAS = np.linspace(1.6277777777777778, 3.033333333333333, 12)
-for i, p in enumerate(gen_dispersal_params(SIGMAS), i):
-    with open(PARAM_DIR / f"{i}.json", "w") as fp:
-        json.dump({**p, **MODEL_PARAMS, "SEED": RNG.randint(0, 2**31)}, fp, indent=2)
-
-
-# {"SD": 0.4, "SI": 0.4, "SM": 0.4, "SEED"}
