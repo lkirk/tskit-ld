@@ -1,85 +1,151 @@
 from dataclasses import dataclass
 from itertools import combinations_with_replacement
 from pathlib import Path
+from typing import Any, Callable, cast
 
 import matplotlib.pyplot as plt
-import msprime
+# import msprime
 import numpy as np
+import numpy.typing as npt
+import polars as pl
+import pyarrow.parquet as pq
 import pyslim
 import tskit
+import tszip
 from joblib import Parallel, delayed
+import gc
 
 
-# def get_breakpoints(arr1, arr2=None):
-#     breaks = np.zeros(len(arr1) - 1, dtype=bool)
-#     if arr2 is not None:
-#         assert len(arr1) == len(arr2)
-#         breaks[arr1[1:] != arr2[:-1]] = True
-#     else:
-#         breaks[arr1[1:] != arr1[:-1]] = True
-#     breaks = np.insert(breaks, 0, True)
-#     breaks = np.vstack(
-#         [np.where(breaks)[0], np.append(np.where(breaks)[0][1:], len(arr1))]
-#     ).T
-#     return [slice(*r) for r in breaks]
-
-
-@dataclass
-class TreeSequenceData:
-    label: str
-    ts: tskit.TreeSequence
-    gt: float
-    model_params: dict
-    gentimes: np.array
-    sampling_times: np.array
-
-
-def load_slim_ts_and_mutate(
-    ts_path,
-    mu,
-    seed,
-    label_func=lambda p: "_".join(
-        map(str, [p.parent.name, Path(p.name).with_suffix("")])
-    ),
-):
-    label = label_func(ts_path)
-    print(f"loading {label}: {ts_path}")
-    ts = tskit.load(ts_path)
-    gentimes = np.array(
-        ts.metadata["SLiM"]["user_metadata"]["generation_times"], dtype=np.float64
+def get_inds_sampling_time(ts: tskit.TreeSequence) -> npt.NDArray[np.int64]:
+    """Get the time at which individuals are alive"""
+    # verify about time units
+    assert (
+        ts.metadata["SLiM"]["model_type"] == "nonWF"
+        and ts.metadata["SLiM"]["stage"] == "late"
     )
-    gentimes = gentimes[~np.isnan(gentimes)]
-    assert len(gentimes) == ts.metadata["SLiM"]["tick"]
-
+    age_offset = 1  # see above assertion
+    # sampling time
     sampling_times = np.array(
-        ts.metadata["SLiM"]["user_metadata"]["sampling_times"], dtype=int
+        ts.metadata["SLiM"]["user_metadata"]["sampling_times"], dtype=np.int64
     )
-
-    gt = gentimes[-sampling_times[0] :].mean()
-    print(
-        f"Estimated generation time: {gt} from first {len(gentimes[-sampling_times[0]:])} ticks"
+    st = pyslim.slim_time(ts, sampling_times)
+    # birth time
+    bt = np.repeat(ts.individuals_time, len(st)).reshape(-1, len(st))
+    # sample ages at sampling
+    age = np.repeat(ts.tables.individuals.metadata_vector("age"), len(st)).reshape(
+        -1, len(st)
     )
-    # relative sampling times
-    sampling_times -= sampling_times[0]
+    return st[np.where((bt >= st) & (bt - age < st + age_offset))[1]]
 
-    model_params = {
-        k: v[0] for k, v in ts.metadata["SLiM"]["user_metadata"]["params"][0].items()
+
+def preprocess_metadata(meta: dict[str, Any], run_id: str):
+    """Strip out unnecessary metadata, flatten and convert values to bytes"""
+    assert len(meta["SLiM"]["user_metadata"]["params"]) == 1
+    assert all(
+        [len(v) == 1 for v in meta["SLiM"]["user_metadata"]["params"][0].values()]
+    )
+    meta["params"] = {
+        k: v[0] for k, v in meta["SLiM"]["user_metadata"]["params"][0].items()
     }
+    meta["run_id"] = run_id
+    del meta["SLiM"]["user_metadata"]
+    meta = {
+        k: str(v).encode("utf-8") for k, v in {**meta["SLiM"], **meta["params"]}.items()
+    }
+    meta.update(dict(run_id=run_id))
+    return meta
 
-    if all_coalesced := (np.array([t.num_roots for t in ts.trees()]) == 1).all():
-        print("all trees have coalesced")
-    assert all_coalesced
 
-    ts = msprime.sim_mutations(ts, rate=mu / gt, random_seed=seed)
-
-    return TreeSequenceData(
-        label=label,
-        ts=ts,
-        gt=gt,
-        model_params=model_params,
-        gentimes=gentimes,
-        sampling_times=sampling_times,
+def load_ts_and_process_spatial_data(
+    ts_path: Path,
+) -> tuple[pl.DataFrame, dict[str, bytes]]:
+    ts = cast(tskit.TreeSequence, tszip.load(ts_path))
+    assert (
+        np.array([t.num_roots for t in ts.trees()]) == 1
+    ).all(), "not all trees have coalesced"
+    sampling_time = get_inds_sampling_time(ts)
+    assert (ts.individuals_location[:, 2] == 0).all()
+    df = pl.DataFrame(
+        {
+            "ind": np.arange(ts.num_individuals, dtype=np.uint64),
+            "x": ts.individuals_location[:, 0],
+            "y": ts.individuals_location[:, 1],
+            "sampling_time": sampling_time,
+            "age": ts.tables.individuals.metadata_vector("age"),
+        }
     )
+    meta = preprocess_metadata(
+        ts.metadata, ts_path.name.removesuffix("".join(ts_path.suffixes))
+    )
+    return df, meta
+
+
+def write_parquet(
+    df: pl.DataFrame,
+    out_path: Path,
+    metadata,
+    compression="ZSTD",
+    compression_level=None,
+) -> None:
+    table = df.to_arrow()
+    with pq.ParquetWriter(
+        out_path,
+        table.schema.with_metadata(metadata),
+        compression=compression,
+        compression_level=compression_level,
+    ) as writer:
+        writer.write_table(table)
+
+
+def process_data_and_write_parquet(
+    in_ts_path: Path,
+    out_path: Path,
+    compression="ZSTD",
+    compression_level=None,
+) -> None:
+    df, meta = load_ts_and_process_spatial_data(in_ts_path)
+    write_parquet(
+        df, out_path, meta, compression=compression, compression_level=compression_level
+    )
+
+
+def process_data_and_write_parquet_parallel(
+    in_paths: list[Path],
+    out_dir: Path,
+    n_jobs: int,
+    rename_fn: Callable = lambda f: Path(f.name)
+    .with_suffix("")
+    .with_suffix(".parquet"),
+    verbose=10,
+    **process_kwargs: dict[str, Any],
+) -> None:
+    assert out_dir.exists(), f"{out_dir} does not exist"
+    Parallel(verbose=verbose, n_jobs=n_jobs)(
+        delayed(process_data_and_write_parquet)(
+            f, out_dir / rename_fn(f), **process_kwargs
+        )
+        for f in in_paths
+    )
+
+
+def get_metadata_df(in_paths: list[Path]) -> pl.DataFrame:
+    return pl.DataFrame([decode_metadata(pq.read_metadata(f).metadata) for f in in_paths])
+
+
+def decode_metadata(m):
+    if isinstance(m, dict):
+        m.pop(b"ARROW:schema", None)
+        return {k.decode("utf-8"): decode_metadata(v) for k, v in m.items()}
+    m = m.decode("utf-8")
+    try:
+        m = int(m)
+    except ValueError:
+        pass
+    try:
+        m = float(m)
+    except ValueError:
+        pass
+    return m
 
 
 def plot_divergence(div, dist, indexes, groups, pairs, ax=None):
@@ -160,7 +226,6 @@ def get_individuals_at_time_space_rings(
 
 
 from dataclasses import dataclass
-from typing import Callable
 
 
 @dataclass
