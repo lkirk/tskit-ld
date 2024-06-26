@@ -1,19 +1,21 @@
+import json
 from dataclasses import dataclass
 from itertools import combinations_with_replacement
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable, cast, Generator, Optional
 
 import matplotlib.pyplot as plt
+
 # import msprime
 import numpy as np
 import numpy.typing as npt
 import polars as pl
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pyslim
 import tskit
 import tszip
 from joblib import Parallel, delayed
-import gc
 
 
 def get_inds_sampling_time(ts: tskit.TreeSequence) -> npt.NDArray[np.int64]:
@@ -38,7 +40,7 @@ def get_inds_sampling_time(ts: tskit.TreeSequence) -> npt.NDArray[np.int64]:
     return st[np.where((bt >= st) & (bt - age < st + age_offset))[1]]
 
 
-def preprocess_metadata(meta: dict[str, Any], run_id: str):
+def preprocess_metadata(meta: dict[str, Any]) -> bytes:
     """Strip out unnecessary metadata, flatten and convert values to bytes"""
     assert len(meta["SLiM"]["user_metadata"]["params"]) == 1
     assert all(
@@ -47,17 +49,15 @@ def preprocess_metadata(meta: dict[str, Any], run_id: str):
     meta["params"] = {
         k: v[0] for k, v in meta["SLiM"]["user_metadata"]["params"][0].items()
     }
-    meta["run_id"] = run_id
     del meta["SLiM"]["user_metadata"]
-    meta = {
-        k: str(v).encode("utf-8") for k, v in {**meta["SLiM"], **meta["params"]}.items()
-    }
-    meta.update(dict(run_id=run_id))
-    return meta
+    meta = {**meta["SLiM"], **meta["params"]}  # flatten dict a bit
+    return json.dumps(meta).encode("utf-8")
 
 
 def load_ts_and_process_spatial_data(
     ts_path: Path,
+    run_id: str,
+    run_ids: pl.Enum,
 ) -> tuple[pl.DataFrame, dict[str, bytes]]:
     ts = cast(tskit.TreeSequence, tszip.load(ts_path))
     assert (
@@ -73,21 +73,54 @@ def load_ts_and_process_spatial_data(
             "sampling_time": sampling_time,
             "age": ts.tables.individuals.metadata_vector("age"),
         }
+    ).with_columns(run_id=pl.lit(run_id, dtype=run_ids))
+    return df, {run_id: preprocess_metadata(ts.metadata)}
+
+
+def process_data_and_write_parquet(
+    in_paths: dict[str, Path],
+    out_path: Path,
+    n_jobs: int,
+    verbose: int = 10,
+    **process_kwargs: Any,
+) -> None:
+    assert out_path.parent.exists(), f"{out_path} does not exist"
+    run_ids = pl.Enum(in_paths.keys())
+    result_iter = cast(
+        Generator[tuple[pl.DataFrame, dict[str, bytes]], None, None],
+        Parallel(verbose=verbose, n_jobs=n_jobs, return_as="generator_unordered")(
+            delayed(load_ts_and_process_spatial_data)(f, run_id, run_ids)
+            for run_id, f in in_paths.items()
+        ),
     )
-    meta = preprocess_metadata(
-        ts.metadata, ts_path.name.removesuffix("".join(ts_path.suffixes))
-    )
-    return df, meta
+    df = pl.DataFrame()
+    meta = dict()
+    # NB no need to rechunk because we're saving to disk immediately
+    for data, m in result_iter:
+        df.vstack(data, in_place=True)
+        meta.update(m)
+    write_parquet(df, out_path, meta, **process_kwargs)
 
 
 def write_parquet(
-    df: pl.DataFrame,
+    data: pl.DataFrame | pa.Table,
     out_path: Path,
     metadata,
-    compression="ZSTD",
-    compression_level=None,
+    compression: str = "ZSTD",
+    compression_level: Optional[int] = None,
 ) -> None:
-    table = df.to_arrow()
+    match data:
+        case pl.DataFrame():
+            table = data.to_arrow()
+        case pa.Table():
+            table = data
+        case _:
+            raise ValueError
+
+    # TODO: writing with pyarrow turns our enum type into a categorical
+    #       either figure out how to preserve this or remove the complexity
+    #       of creating Enum types.
+    #       hints here: https://github.com/pola-rs/polars/pull/13943
     with pq.ParquetWriter(
         out_path,
         table.schema.with_metadata(metadata),
@@ -97,55 +130,14 @@ def write_parquet(
         writer.write_table(table)
 
 
-def process_data_and_write_parquet(
-    in_ts_path: Path,
-    out_path: Path,
-    compression="ZSTD",
-    compression_level=None,
-) -> None:
-    df, meta = load_ts_and_process_spatial_data(in_ts_path)
-    write_parquet(
-        df, out_path, meta, compression=compression, compression_level=compression_level
+def get_metadata_df(in_path: Path) -> pl.DataFrame:
+    return pl.DataFrame(
+        [
+            {**dict(run_id=k.decode("utf-8")), **json.loads(v.decode("utf-8"))}
+            for k, v in pq.read_metadata(in_path).metadata.items()
+            if k != b"ARROW:schema"
+        ]
     )
-
-
-def process_data_and_write_parquet_parallel(
-    in_paths: list[Path],
-    out_dir: Path,
-    n_jobs: int,
-    rename_fn: Callable = lambda f: Path(f.name)
-    .with_suffix("")
-    .with_suffix(".parquet"),
-    verbose=10,
-    **process_kwargs: dict[str, Any],
-) -> None:
-    assert out_dir.exists(), f"{out_dir} does not exist"
-    Parallel(verbose=verbose, n_jobs=n_jobs)(
-        delayed(process_data_and_write_parquet)(
-            f, out_dir / rename_fn(f), **process_kwargs
-        )
-        for f in in_paths
-    )
-
-
-def get_metadata_df(in_paths: list[Path]) -> pl.DataFrame:
-    return pl.DataFrame([decode_metadata(pq.read_metadata(f).metadata) for f in in_paths])
-
-
-def decode_metadata(m):
-    if isinstance(m, dict):
-        m.pop(b"ARROW:schema", None)
-        return {k.decode("utf-8"): decode_metadata(v) for k, v in m.items()}
-    m = m.decode("utf-8")
-    try:
-        m = int(m)
-    except ValueError:
-        pass
-    try:
-        m = float(m)
-    except ValueError:
-        pass
-    return m
 
 
 def plot_divergence(div, dist, indexes, groups, pairs, ax=None):
@@ -157,7 +149,7 @@ def plot_divergence(div, dist, indexes, groups, pairs, ax=None):
         colors[(groups == p).all(1)] = i
         mask[(groups == p).all(1)] |= True
     if ax is None:
-        fig, ax = plt.subplots()
+        _, ax = plt.subplots()
     scatter = ax.scatter(dist[mask], div[mask] * 1e3, c=colors[mask], alpha=0.3)
     if ax is None:
         ax.set_xlabel("geographic distance")
