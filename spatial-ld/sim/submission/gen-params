@@ -39,7 +39,6 @@ def gen_dispersal_params(sigmas):
 PARAM_DIR = Path("params")
 PARAM_DIR.mkdir()
 
-SEEDS = RNG.randint(0, 2**31)
 REPS = 150
 SIGMAS = np.repeat(np.linspace(0.35, 3, 25), REPS)
 i = 0
