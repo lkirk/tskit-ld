@@ -1,0 +1,19 @@
+# Requirements for editing, analysis, and data processing
+# TODO: freeze the versions used
+black
+demesdraw
+great_tables
+ipdb
+ipykernel
+ipython
+isort
+itables
+joblib
+matplotlib
+moments-popgen
+more-itertools
+pandas
+polars
+pyarrow
+pyslim
+tszip

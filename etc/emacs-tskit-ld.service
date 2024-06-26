@@ -1,0 +1,15 @@
+[Unit]
+Description=Emacs: emacs environment for spatial ld project
+
+[Service]
+Type=forking
+ExecStart=/bin/bash -c ' \
+    source %h/repo/tskit-ld/ve/bin/activate; \
+    emacs --daemon=tskit-ld \
+'
+ExecStop=/usr/bin/emacsclient -s tskit-ld --eval "(kill-emacs)"
+Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
+Restart=always
+
+[Install]
+WantedBy=default.target
