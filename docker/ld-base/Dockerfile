@@ -8,6 +8,7 @@ RUN \
 
 RUN \
 	set -ex; \
+	pip install -U 'pip==24.1.1' 'setuptools==70.1.1'; \
 	git clone https://github.com/lkirk/tskit -b two-locus-staging; \
 	cd tskit/python; \
 	make; \
