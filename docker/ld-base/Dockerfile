@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bullseye
+FROM python:3.11-slim-bullseye as build
 
 RUN \
 	set -ex; \
@@ -11,14 +11,10 @@ RUN \
 	git clone https://github.com/lkirk/tskit -b two-locus-staging; \
 	cd tskit/python; \
 	make; \
-	# install local build of tskit
-	pip install /tskit/python
+	pip wheel --no-cache-dir --no-deps --wheel-dir /wheels /tskit/python
 
-ADD requirements.txt .
+FROM python:3.11-slim-bullseye as base
 
-RUN \
-	set -ex; \
-	# update pip, setuptools
-	pip install -U pip setuptools; \
-	# install requirements
-	pip install -r requirements.txt
+COPY --from=build /wheels /wheels
+
+RUN pip install --no-cache /wheels/* && rm -r /wheels
