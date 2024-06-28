@@ -1,4 +1,5 @@
 import json
+import re
 from itertools import combinations_with_replacement
 from pathlib import Path
 from typing import (
@@ -119,7 +120,9 @@ def read_metadata_df(in_path: Path) -> pl.DataFrame:
 
 
 def read_parquet_file(
-    in_path: Path, collect: bool = False
+        in_path: Path, collect: bool = False,
+        metadata_from: Optional[Path] = None,
+
 ) -> tuple[pl.DataFrame, pl.LazyFrame | pl.DataFrame]:
     """
     Read parquet file and associated metadata. We have to work around the
@@ -127,7 +130,10 @@ def read_parquet_file(
     categorical variable. Once this is fixed, we won't have to perform our
     cast to the enum type.
     """
-    meta = read_metadata_df(in_path)
+    if metadata_from is not None:
+        meta = read_metadata_df(metadata_from)
+    else:
+        meta = read_metadata_df(in_path)
     data = pl.scan_parquet(in_path).with_columns(
         run_id=pl.col("run_id").cast(meta["run_id"].dtype)
     )
@@ -139,32 +145,15 @@ def read_parquet_file(
 def merge_parquet_files(
     in_paths: Iterable[Path],
     out_path: Path,
-    n_jobs: int,
-    metadata: Optional[dict[str, bytes] | dict[bytes, bytes]] = None,
-    metadata_from: Optional[Path] = None,
-    verbose: int = 10,
 ) -> None:
+    # Unfortunately, there's no way to preserve the metadata on this new table.
     if out_path.exists():
         raise ValueError(
             f"{out_path} exists, performing this operation will append to the existing file, remove to continue."
         )
-    if metadata is None and metadata_from is None:
-        raise ValueError("One of `metadata` or `metadata_from` is required")
-    elif metadata is not None and metadata_from is not None:
-        raise ValueError("`metadata` and `metadata_from` are mutually exclusive")
-
-    if metadata_from is not None:
-        metadata = cast(dict[bytes, bytes], pq.read_metadata(metadata_from).metadata)
-        del metadata[b"ARROW:schema"]
 
     # Merge files directly to disk in parallel
-    Parallel(verbose=verbose, n_jobs=n_jobs)(
-        delayed(lambda p: pl.scan_parquet(p).sink_parquet(out_path))(p)
-        for p in in_paths
-    )
-
-    schema = pq.read_schema(out_path)
-    pq.write_metadata(schema.with_metadata(metadata), out_path)
+    pl.concat(pl.scan_parquet(f) for f in in_paths).sink_parquet(out_path)
 
 
 ## Initial Raw Sample Data Processing
