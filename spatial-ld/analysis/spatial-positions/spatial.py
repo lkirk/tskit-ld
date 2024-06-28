@@ -240,32 +240,6 @@ def process_raw_ind_data_and_write_parquet(
     write_parquet(df, out_path, meta, **process_kwargs)
 
 
-def get_individuals_at_time_space_rings(
-    ts, t, space_width, n_rings, sample_seed=None, n_samples=None
-):
-    alive = pyslim.individuals_alive_at(ts, t)
-    locs = ts.individuals_location[alive, 0:2]
-    bounds = np.linspace(0, space_width / 2, n_rings)
-    dist = np.linalg.norm((locs * -1) + space_width / 2, axis=1)
-    in_range = dist <= max(bounds)
-    in_bounds = bounds[np.searchsorted(bounds, dist[in_range])]
-
-    if sample_seed is not None:
-        assert n_samples is not None
-        rng = np.random.RandomState(sample_seed)
-        return {
-            str(b): rng.choice(
-                alive[in_range][in_bounds == b], size=n_samples, replace=False
-            )
-            for b in bounds[1:]
-        }
-
-    return {
-        "all": alive,
-        **{str(b): alive[in_range][in_bounds == b] for b in bounds[1:]},
-    }
-
-
 def linspace(start, stop, num, endpoint=True):
     delta = stop - start
     div = (num - 1) if endpoint else num
@@ -281,19 +255,6 @@ def dist_from_point(point):
     x2 = ((pl.col("x") * -1) + point) ** 2
     y2 = ((pl.col("y") * -1) + point) ** 2
     return (x2 + y2).sqrt()
-
-
-def get_individuals_at_time_space_rings_polars(space_width, n_rings):
-    """
-    Sampling in concentric rings (we're not really using this, I'm just
-    keeping it around for posterity's sake
-    """
-    center = space_width / 2
-    bounds = linspace(0, space_width / 2, n_rings)
-    dist = dist_from_point(center)
-    in_bounds = bounds.search_sorted(dist, side="left")  # .alias("in_bounds")
-    in_bounds = pl.when(dist <= center).then(in_bounds).otherwise(None)
-    return bounds.gather(in_bounds)
 
 
 def linear_transect(
