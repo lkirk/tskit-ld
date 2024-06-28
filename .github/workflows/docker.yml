@@ -47,6 +47,8 @@ jobs:
             context: validation/sim/docker
           - name: benchmarks
             context: benchmarks/sim/docker
+          - name: spatial-analysis
+            context: spatial-ld/analysis/docker
 
     permissions:  # Sets the permissions granted to the `GITHUB_TOKEN`
       contents: read

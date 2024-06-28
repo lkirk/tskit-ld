@@ -1,0 +1,99 @@
+#!/usr/bin/env python
+import os
+
+# limit number of threads that polars uses
+os.environ["POLARS_MAX_THREADS"] = "17"
+os.environ["OMP_NUM_THREADS"] = "17"
+
+import argparse
+import logging
+from pathlib import Path
+
+import polars as pl
+from more_itertools import one
+
+from spatial import (
+    compute_divergence_and_geog_distance_for_sim,
+    load_ts,
+    read_parquet_file,
+)
+
+logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
+
+
+def parent_exists(value: str) -> Path:
+    p = Path(value)
+    if not (n := p.parent).exists():
+        raise argparse.ArgumentTypeError(f"{n} does not exist")
+    if not (n := p.parent).is_dir():
+        raise argparse.ArgumentTypeError(f"{n} is not a directory")
+    if (n := p).exists():
+        raise argparse.ArgumentTypeError(f"{n} exists")
+    return p
+
+
+def file_exists(value: str) -> Path:
+    p = Path(value)
+    if not (n := p).exists():
+        raise argparse.ArgumentTypeError(f"{n} does not exist")
+    return p
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(
+        title="analyses",
+        description="analyses to run",
+        dest="subcommand",
+        help="analysis step in the pipeline",
+        required=True,
+    )
+
+    cd = subparsers.add_parser(
+        "compute_divergence", help="compute divergence and geographic distance"
+    )
+    cd.add_argument("in_ts", type=file_exists, help="input tree sequence")
+    cd.add_argument("in_df", type=file_exists, help="input data frame")
+    cd.add_argument("out_df", type=parent_exists, help="output data frame")
+
+    prep_cd = subparsers.add_parser(
+        "prepare_compute_divergence", help="prepare cluster inputs"
+    )
+    prep_cd.add_argument("in_df", type=file_exists, help="input data frame")
+    prep_cd.add_argument(
+        "out_dir", type=parent_exists, help="path to save input dataframes"
+    )
+
+    return parser.parse_args()
+
+
+args = parse_args()
+log = logging.getLogger(__name__)
+log.info("input parameters: %s", args)
+
+match args.subcommand:
+    case "compute_divergence":
+        ts = load_ts(args.in_ts)
+        df = pl.read_parquet(args.in_df)
+        assert one(df["run_id"].unique()) in str(
+            args.in_ts
+        ), "df not associated with ts"
+        log.info("computing divergence and geog distance")
+        result = compute_divergence_and_geog_distance_for_sim(ts, df)
+        log.info("writing %s", args.out_df)
+        result.write_parquet(args.out_df)
+        log.info("wrote %s", args.out_df)
+    case "prepare_compute_divergence":
+        _, df = read_parquet_file(args.in_df)
+        assert isinstance(df, pl.LazyFrame)  # mypy
+        partitions = (
+            df.drop("sample_group", "ind", "x", "y", "age")
+            .sort("run_id", "sampling_time", "s_ind")
+            .collect()
+            .partition_by(["run_id"], as_dict=True, maintain_order=True)
+        )
+        args.out_dir.mkdir()
+        for (run_id,), d in partitions.items():
+            d.write_parquet(args.out_dir / f"{run_id}.parquet")
+
+log.info("complete")
