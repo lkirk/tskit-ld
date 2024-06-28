@@ -2,8 +2,8 @@ universe                = docker
 docker_image            = ghcr.io/lkirk/tskit-ld/spatial-analysis
 docker_pull_policy      = always  # this means we always pull from the docker repo (see warnings in docs)
 
-arguments               = compute_divergence output-$Fn(FILE).trees.tsz $Fn(FILE) $Fn(FILE)-div.parquet
-transfer_input_files    = file:///staging/lkirk2/trees-simplified/output-$Fn(FILE).trees.tsz, $Fn(FILE)
+arguments               = compute_divergence output-$Fn(FILE).trees.tsz $Fnx(FILE) $Fn(FILE)-div.parquet
+transfer_input_files    = file:///staging/lkirk2/trees-simplified/output-$Fn(FILE).trees.tsz, $(FILE)
 
 should_transfer_files   = YES
 when_to_transfer_output = ON_EXIT
