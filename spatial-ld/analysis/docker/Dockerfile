@@ -5,7 +5,7 @@ ADD requirements-frozen.txt .
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels -r requirements-frozen.txt
 
 
-FROM python:3.11-slim-bullseye as base
+FROM ghcr.io/lkirk/tskit-ld/ld-base as analysis
 
 COPY --from=build /wheels /wheels
 
