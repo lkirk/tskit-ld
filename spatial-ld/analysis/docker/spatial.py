@@ -1,7 +1,16 @@
 import json
 from itertools import combinations_with_replacement
 from pathlib import Path
-from typing import Any, Callable, Generator, Optional, Sequence, SupportsIndex, cast
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    Iterable,
+    Optional,
+    Sequence,
+    SupportsIndex,
+    cast,
+)
 
 import matplotlib.pyplot as plt
 import msprime
@@ -11,6 +20,7 @@ import polars as pl
 import polars.type_aliases
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pyarrow.dataset
 import pyslim
 import tskit
 import tszip
@@ -51,7 +61,7 @@ def load_ts(ts_path: Path) -> tskit.TreeSequence:
 def write_parquet(
     data: pl.DataFrame | pa.Table,
     out_path: Path,
-    metadata: Optional[dict[str, bytes] | dict[bytes, bytes]] = None,
+    metadata: Optional[dict[str, str] | dict[bytes, bytes]] = None,
     metadata_from: Optional[Path] = None,
     compression: str = "ZSTD",
     compression_level: Optional[int] = None,
@@ -78,13 +88,20 @@ def write_parquet(
         metadata = cast(dict[bytes, bytes], pq.read_metadata(metadata_from).metadata)
         del metadata[b"ARROW:schema"]
 
-    # TODO: writing with pyarrow turns our enum type into a categorical
-    #       either figure out how to preserve this or remove the complexity
-    #       of creating Enum types.
-    #       hints here: https://github.com/pola-rs/polars/pull/13943
+    # preserve polars enum fields
+    schema_fields = {f.name: f for f in table.schema}
+    enum_fields = [
+        c for c, d in zip(data.columns, data.dtypes) if isinstance(d, pl.Enum)
+    ]
+    for f in enum_fields:
+        schema_fields[f] = schema_fields[f].with_metadata(
+            {b"POLARS.CATEGORICAL_TYPE": b"ENUM"}
+        )
+    schema = pa.schema(schema_fields.values(), metadata)
+
     with pq.ParquetWriter(
         out_path,
-        table.schema.with_metadata(metadata),
+        schema,
         compression=compression,
         compression_level=compression_level,
     ) as writer:
@@ -110,7 +127,9 @@ def read_metadata_df(in_path: Path) -> pl.DataFrame:
 
 
 def read_parquet_file(
-    in_path: Path, collect: bool = False
+    in_path: Path,
+    collect: bool = False,
+    metadata_from: Optional[Path] = None,
 ) -> tuple[pl.DataFrame, pl.LazyFrame | pl.DataFrame]:
     """
     Read parquet file and associated metadata. We have to work around the
@@ -118,13 +137,56 @@ def read_parquet_file(
     categorical variable. Once this is fixed, we won't have to perform our
     cast to the enum type.
     """
-    meta = read_metadata_df(in_path)
+    if metadata_from is not None:
+        meta = read_metadata_df(metadata_from)
+    else:
+        meta = read_metadata_df(in_path)
     data = pl.scan_parquet(in_path).with_columns(
         run_id=pl.col("run_id").cast(meta["run_id"].dtype)
     )
     if collect:
         return meta, data.collect()
     return meta, data
+
+
+def merge_parquet_files(
+    in_paths: Iterable[Path],
+    out_path: Path,
+) -> None:
+    # Unfortunately, there's no way to preserve the metadata on this new table.
+    if out_path.exists():
+        raise ValueError(
+            f"{out_path} exists, performing this operation will append to the existing file, remove to continue."
+        )
+
+    # Merge files directly to disk in parallel
+    pl.concat(pl.scan_parquet(f) for f in in_paths).sink_parquet(out_path)
+
+
+def create_pyarrow_dataset(
+    in_dir: Path,
+    out_dir: Path,
+    flavor: str = "hive",
+    compression: str = "ZSTD",
+    compression_level: Optional[int] = None,
+) -> None:
+    assert in_dir.is_dir(), "in_dir must be a directory"
+    dataset = pyarrow.dataset.dataset(in_dir, format="parquet")
+    file_options = pyarrow.dataset.ParquetFileFormat().make_write_options(
+        compression=compression, compression_level=compression_level
+    )
+    partitioning = pyarrow.dataset.partitioning(
+        pa.schema([dataset.schema.field("run_id")]), flavor=flavor
+    )
+    pyarrow.dataset.write_dataset(
+        dataset,
+        max_open_files=0,
+        base_dir=out_dir,
+        format="parquet",
+        file_options=file_options,
+        partitioning=partitioning,
+        existing_data_behavior="error",
+    )
 
 
 ## Initial Raw Sample Data Processing
@@ -173,7 +235,7 @@ def get_inds_sampling_time(ts: tskit.TreeSequence) -> NPUInt32Array:
     return st[np.where((bt >= st) & (bt - age < st + age_offset))[1]]
 
 
-def preprocess_metadata(meta: dict[str, Any]) -> bytes:
+def preprocess_metadata(meta: dict[str, Any]) -> str:
     """
     Strip out unnecessary metadata, flatten and convert values to bytes.
     We flatten the dict to make it row-like for data table construction.
@@ -187,14 +249,14 @@ def preprocess_metadata(meta: dict[str, Any]) -> bytes:
     }
     del meta["SLiM"]["user_metadata"]
     meta = {**meta["SLiM"], **meta["params"]}  # flatten dict
-    return json.dumps(meta).encode("utf-8")
+    return json.dumps(meta)
 
 
 def read_ts_and_process_spatial_data(
     ts_path: Path,
     run_id: str,
     run_ids: pl.Enum,
-) -> tuple[dict[str, bytes], pl.DataFrame]:
+) -> tuple[dict[str, str], pl.DataFrame]:
     ts = load_ts(ts_path)
     assert (
         np.array([t.num_roots for t in ts.trees()]) == 1
@@ -455,10 +517,10 @@ def compute_divergence_and_geog_distance(
     ts: tskit.TreeSequence, pairs: NPInt64Array, ind: pl.Series
 ) -> pl.Series:
     ind_nodes = np.vstack([ts.individual(i).nodes for i in ind])
-    a, b = ts.individuals_location[pairs, 0:2].swapaxes(0, 1)
+    ind_pairs = ind.to_numpy()[pairs]
+    a, b = ts.individuals_location[ind_pairs, 0:2].swapaxes(0, 1)
     dist = np.linalg.norm(a - b, axis=1)
     div = ts.divergence(ind_nodes, indexes=pairs)
-    ind_pairs = ind.to_numpy()[pairs]
     return pl.DataFrame(
         {"geog_dist": dist, "divergence": div, "ind_pairs": ind_pairs}
     ).to_struct()
@@ -479,7 +541,7 @@ def compute_divergence_and_geog_distance_for_sim(
     return (
         df.group_by("sampling_time")
         .agg(
-            pl.col("s_ind").map_batches(
+            stats=pl.col("s_ind").map_batches(
                 lambda g: compute_divergence_and_geog_distance(ts, pairs, g),
                 return_dtype=pl.Struct,
             )
