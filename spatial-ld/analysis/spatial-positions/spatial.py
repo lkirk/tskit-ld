@@ -517,10 +517,10 @@ def compute_divergence_and_geog_distance(
     ts: tskit.TreeSequence, pairs: NPInt64Array, ind: pl.Series
 ) -> pl.Series:
     ind_nodes = np.vstack([ts.individual(i).nodes for i in ind])
-    a, b = ts.individuals_location[pairs, 0:2].swapaxes(0, 1)
+    ind_pairs = ind.to_numpy()[pairs]
+    a, b = ts.individuals_location[ind_pairs, 0:2].swapaxes(0, 1)
     dist = np.linalg.norm(a - b, axis=1)
     div = ts.divergence(ind_nodes, indexes=pairs)
-    ind_pairs = ind.to_numpy()[pairs]
     return (
         pl.DataFrame({"geog_dist": dist, "divergence": div, "ind_pairs": ind_pairs})
         .to_struct()
