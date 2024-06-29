@@ -20,6 +20,7 @@ import polars as pl
 import polars.type_aliases
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pyarrow.dataset
 import pyslim
 import tskit
 import tszip
@@ -60,7 +61,7 @@ def load_ts(ts_path: Path) -> tskit.TreeSequence:
 def write_parquet(
     data: pl.DataFrame | pa.Table,
     out_path: Path,
-    metadata: Optional[dict[str, bytes] | dict[bytes, bytes]] = None,
+    metadata: Optional[dict[str, str] | dict[bytes, bytes]] = None,
     metadata_from: Optional[Path] = None,
     compression: str = "ZSTD",
     compression_level: Optional[int] = None,
@@ -160,6 +161,32 @@ def merge_parquet_files(
 
     # Merge files directly to disk in parallel
     pl.concat(pl.scan_parquet(f) for f in in_paths).sink_parquet(out_path)
+
+
+def create_pyarrow_dataset(
+    in_dir: Path,
+    out_dir: Path,
+    flavor: str = "hive",
+    compression: str = "ZSTD",
+    compression_level: Optional[int] = None,
+) -> None:
+    assert in_dir.is_dir(), "in_dir must be a directory"
+    dataset = pyarrow.dataset.dataset(in_dir, format="parquet")
+    file_options = pyarrow.dataset.ParquetFileFormat().make_write_options(
+        compression=compression, compression_level=compression_level
+    )
+    partitioning = pyarrow.dataset.partitioning(
+        pa.schema([dataset.schema.field("run_id")]), flavor=flavor
+    )
+    pyarrow.dataset.write_dataset(
+        dataset,
+        max_open_files=0,
+        base_dir=out_dir,
+        format="parquet",
+        file_options=file_options,
+        partitioning=partitioning,
+        existing_data_behavior="error",
+    )
 
 
 ## Initial Raw Sample Data Processing
@@ -513,10 +540,16 @@ def compute_divergence_and_geog_distance_for_sim(
         too_short=ValueError("group lengths differ"),
     )
     pairs = np.array(list(pair_func(range(n_inds_samp_time))), dtype=np.int64)
-    return df.group_by("sampling_time").agg(
-        pl.col("s_ind").map_batches(
-            lambda g: compute_divergence_and_geog_distance(ts, pairs, g),
-            return_dtype=pl.Struct,
+    return (
+        df.group_by("sampling_time")
+        .agg(
+            pl.col("s_ind").map_batches(
+                lambda g: compute_divergence_and_geog_distance(ts, pairs, g),
+                return_dtype=pl.Struct,
+            )
+        )
+        .with_columns(
+            run_id=pl.lit(one(df["run_id"].unique()), dtype=df["run_id"].dtype)
         )
     )
 
