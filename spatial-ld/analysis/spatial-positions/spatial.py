@@ -521,11 +521,9 @@ def compute_divergence_and_geog_distance(
     a, b = ts.individuals_location[ind_pairs, 0:2].swapaxes(0, 1)
     dist = np.linalg.norm(a - b, axis=1)
     div = ts.divergence(ind_nodes, indexes=pairs)
-    return (
-        pl.DataFrame({"geog_dist": dist, "divergence": div, "ind_pairs": ind_pairs})
-        .to_struct()
-        .alias("stats")
-    )
+    return pl.DataFrame(
+        {"geog_dist": dist, "divergence": div, "ind_pairs": ind_pairs}
+    ).to_struct()
 
 
 def compute_divergence_and_geog_distance_for_sim(
@@ -543,7 +541,7 @@ def compute_divergence_and_geog_distance_for_sim(
     return (
         df.group_by("sampling_time")
         .agg(
-            pl.col("s_ind").map_batches(
+            stats=pl.col("s_ind").map_batches(
                 lambda g: compute_divergence_and_geog_distance(ts, pairs, g),
                 return_dtype=pl.Struct,
             )
