@@ -1,5 +1,4 @@
 import json
-import re
 from itertools import combinations_with_replacement
 from pathlib import Path
 from typing import (
@@ -88,13 +87,20 @@ def write_parquet(
         metadata = cast(dict[bytes, bytes], pq.read_metadata(metadata_from).metadata)
         del metadata[b"ARROW:schema"]
 
-    # TODO: writing with pyarrow turns our enum type into a categorical
-    #       either figure out how to preserve this or remove the complexity
-    #       of creating Enum types.
-    #       hints here: https://github.com/pola-rs/polars/pull/13943
+    # preserve polars enum fields
+    schema_fields = {f.name: f for f in table.schema}
+    enum_fields = [
+        c for c, d in zip(data.columns, data.dtypes) if isinstance(d, pl.Enum)
+    ]
+    for f in enum_fields:
+        schema_fields[f] = schema_fields[f].with_metadata(
+            {b"POLARS.CATEGORICAL_TYPE": b"ENUM"}
+        )
+    schema = pa.schema(schema_fields.values(), metadata)
+
     with pq.ParquetWriter(
         out_path,
-        table.schema.with_metadata(metadata),
+        schema,
         compression=compression,
         compression_level=compression_level,
     ) as writer:
@@ -120,9 +126,9 @@ def read_metadata_df(in_path: Path) -> pl.DataFrame:
 
 
 def read_parquet_file(
-        in_path: Path, collect: bool = False,
-        metadata_from: Optional[Path] = None,
-
+    in_path: Path,
+    collect: bool = False,
+    metadata_from: Optional[Path] = None,
 ) -> tuple[pl.DataFrame, pl.LazyFrame | pl.DataFrame]:
     """
     Read parquet file and associated metadata. We have to work around the
@@ -202,7 +208,7 @@ def get_inds_sampling_time(ts: tskit.TreeSequence) -> NPUInt32Array:
     return st[np.where((bt >= st) & (bt - age < st + age_offset))[1]]
 
 
-def preprocess_metadata(meta: dict[str, Any]) -> bytes:
+def preprocess_metadata(meta: dict[str, Any]) -> str:
     """
     Strip out unnecessary metadata, flatten and convert values to bytes.
     We flatten the dict to make it row-like for data table construction.
@@ -216,14 +222,14 @@ def preprocess_metadata(meta: dict[str, Any]) -> bytes:
     }
     del meta["SLiM"]["user_metadata"]
     meta = {**meta["SLiM"], **meta["params"]}  # flatten dict
-    return json.dumps(meta).encode("utf-8")
+    return json.dumps(meta)
 
 
 def read_ts_and_process_spatial_data(
     ts_path: Path,
     run_id: str,
     run_ids: pl.Enum,
-) -> tuple[dict[str, bytes], pl.DataFrame]:
+) -> tuple[dict[str, str], pl.DataFrame]:
     ts = load_ts(ts_path)
     assert (
         np.array([t.num_roots for t in ts.trees()]) == 1
@@ -507,16 +513,10 @@ def compute_divergence_and_geog_distance_for_sim(
         too_short=ValueError("group lengths differ"),
     )
     pairs = np.array(list(pair_func(range(n_inds_samp_time))), dtype=np.int64)
-    return (
-        df.group_by("sampling_time")
-        .agg(
-            pl.col("s_ind").map_batches(
-                lambda g: compute_divergence_and_geog_distance(ts, pairs, g),
-                return_dtype=pl.Struct,
-            )
-        )
-        .with_columns(
-            run_id=pl.lit(one(df["run_id"].unique()), dtype=df["run_id"].dtype)
+    return df.group_by("sampling_time").agg(
+        pl.col("s_ind").map_batches(
+            lambda g: compute_divergence_and_geog_distance(ts, pairs, g),
+            return_dtype=pl.Struct,
         )
     )
 
