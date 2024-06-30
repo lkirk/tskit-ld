@@ -1,5 +1,6 @@
+import concurrent.futures
 import json
-from itertools import combinations_with_replacement
+from itertools import combinations_with_replacement, zip_longest
 from pathlib import Path
 from typing import (
     Any,
@@ -129,38 +130,21 @@ def read_metadata_df(in_path: Path) -> pl.DataFrame:
 def read_parquet_file(
     in_path: Path,
     collect: bool = False,
-    metadata_from: Optional[Path] = None,
-) -> tuple[pl.DataFrame, pl.LazyFrame | pl.DataFrame]:
+    metadata: bool = False,
+) -> tuple[pl.DataFrame, pl.LazyFrame | pl.DataFrame] | pl.LazyFrame | pl.DataFrame:
     """
     Read parquet file and associated metadata. We have to work around the
     fact that serialization into parquet format converts our run_id to a
     categorical variable. Once this is fixed, we won't have to perform our
     cast to the enum type.
     """
-    if metadata_from is not None:
-        meta = read_metadata_df(metadata_from)
-    else:
-        meta = read_metadata_df(in_path)
-    data = pl.scan_parquet(in_path).with_columns(
-        run_id=pl.col("run_id").cast(meta["run_id"].dtype)
-    )
+    data = pl.scan_parquet(in_path)
     if collect:
-        return meta, data.collect()
+        data = data.collect()
+    if metadata is False:
+        return data
+    meta = read_metadata_df(in_path)
     return meta, data
-
-
-def merge_parquet_files(
-    in_paths: Iterable[Path],
-    out_path: Path,
-) -> None:
-    # Unfortunately, there's no way to preserve the metadata on this new table.
-    if out_path.exists():
-        raise ValueError(
-            f"{out_path} exists, performing this operation will append to the existing file, remove to continue."
-        )
-
-    # Merge files directly to disk in parallel
-    pl.concat(pl.scan_parquet(f) for f in in_paths).sink_parquet(out_path)
 
 
 def create_pyarrow_dataset(
@@ -302,7 +286,9 @@ def process_raw_ind_data_and_write_parquet(
     write_parquet(df, out_path, meta, **process_kwargs)
 
 
-def linspace(start, stop, num, endpoint=True):
+def linspace(
+    start: int | float, stop: int | float, num: int, endpoint: bool = True
+) -> pl.Expr:
     delta = stop - start
     div = (num - 1) if endpoint else num
     step = delta / div
@@ -311,12 +297,6 @@ def linspace(start, stop, num, endpoint=True):
         # lazy equivalent to y[-1] = stop
         y = y.shift(1).shift(-1, fill_value=stop)
     return y
-
-
-def dist_from_point(point):
-    x2 = ((pl.col("x") * -1) + point) ** 2
-    y2 = ((pl.col("y") * -1) + point) ** 2
-    return (x2 + y2).sqrt()
 
 
 def linear_transect(
@@ -360,7 +340,6 @@ def spatially_sample_individuals(
 
     """
     return (
-        # run.filter(pl.col("sample_group").is_not_null())
         df.with_columns(sample_group=sample_group_fn)
         .filter(pl.col("sample_group").is_not_null())
         .group_by("sampling_time", "run_id", "sample_group")
@@ -372,7 +351,7 @@ def spatially_sample_individuals(
 def spatially_sample_individuals_join_data(
     in_path: Path, n_ind: int, sample_group_fn: IntoExpr
 ) -> pl.DataFrame:
-    _, df = read_parquet_file(in_path)
+    df = read_parquet_file(in_path)
     # unfortunately, we have to  join this with the original data. The initial
     # semi join reduces the memory overhead for performing a massive join. The
     # query optimizer prevents sampled from being computed twice.
@@ -395,34 +374,11 @@ def spatially_sample_individuals_join_data(
     )
 
 
+# def get_individual_nodes(ts, ind):  # TODO: possibly use this?
+#     return np.where(np.isin(ts.nodes_individual, ind))[0].reshape(-1, 2)
+
+
 def simplify_tree_sequence(
-    ts: tskit.TreeSequence, sampled: pl.DataFrame
-) -> tuple[tskit.TreeSequence, NPInt32Array]:
-    # Nodes to keep. We must keep the nodes from the individual (they're diploid in this case)
-    ind_nodes = np.vstack([ts.individual(i).nodes for i in sampled["ind"]])
-    sts, node_map = cast(
-        tuple[tskit.TreeSequence, NPInt32Array],
-        ts.simplify(
-            samples=ind_nodes.reshape(-1), keep_input_roots=True, map_nodes=True
-        ),
-    )
-    new_nodes = node_map[ind_nodes]
-    s_nodes = sts.nodes_individual[new_nodes]
-    assert (new_nodes != -1).all(), "individual nodes were removed"
-    assert (s_nodes[:, 0] == s_nodes[:, 1]).all(), "node mapping is incorrect"
-    s_ind = sts.nodes_individual[new_nodes[:, 0]]
-    # Assert that we've mapped the individuals correctly
-    assert (
-        ts.individuals_location[sampled["ind"]] == sts.individuals_location[s_ind]
-    ).all()
-    assert (ts.individuals_time[sampled["ind"]] == sts.individuals_time[s_ind]).all()
-    assert (ts.individuals_flags[sampled["ind"]] == sts.individuals_flags[s_ind]).all()
-    assert (new_nodes.flatten() == sts.samples()).all()
-
-    return sts, s_ind
-
-
-def simplify_tree_sequence_noinputroots(
     ts: tskit.TreeSequence, sampled: pl.DataFrame
 ) -> tuple[tskit.TreeSequence, NPInt32Array]:
     # Nodes to keep. We must keep the nodes from the individual (they're diploid in this case)
@@ -465,8 +421,12 @@ def simplify_and_mutate_tree_sequence(
     # obtain simplified tree sequence and our new sampled individual ids
     ts, s_ind = simplify_tree_sequence(ts, sampled)
     ts = msprime_neutral_mutations(ts, mu, seed)
+    ind_nodes_simplified = np.vstack([ts.individual(i).nodes for i in s_ind])
     tszip.compress(ts, out_path)
-    return sampled.select("run_id", "ind").with_columns(pl.Series("s_ind", s_ind))
+    return sampled.select("run_id", "ind").with_columns(
+        pl.Series("s_ind", s_ind),
+        pl.Series("ind_nodes", ind_nodes_simplified, pl.Array(pl.Int32, 2)),
+    )
 
 
 def simplify_and_mutate_tree_sequences(
@@ -513,6 +473,20 @@ def simplify_and_mutate_tree_sequences(
 ## Summary statistics
 
 
+def prepare_divergence_geog_dist_cluster_params(in_path: Path, out_dir: Path) -> None:
+    df = read_parquet_file(in_path)
+    assert isinstance(df, pl.LazyFrame)  # mypy
+    partitions = (
+        df.drop("sample_group", "ind", "x", "y", "age")
+        .sort("run_id", "sampling_time", "s_ind")
+        .collect()
+        .partition_by(["run_id"], as_dict=True, maintain_order=True)
+    )
+    out_dir.mkdir()
+    for (run_id,), d in partitions.items():
+        d.write_parquet(out_dir / f"{run_id}.parquet")
+
+
 def compute_divergence_and_geog_distance(
     ts: tskit.TreeSequence, pairs: NPInt64Array, ind: pl.Series
 ) -> pl.Series:
@@ -550,6 +524,128 @@ def compute_divergence_and_geog_distance_for_sim(
             run_id=pl.lit(one(df["run_id"].unique()), dtype=df["run_id"].dtype)
         )
     )
+
+
+### LD Decay
+
+
+def get_max_dist_slice(pos, max_dist):
+    bounds = np.vstack([pos, pos + np.repeat(max_dist, len(pos))]).T
+    for start, stop in np.searchsorted(pos, bounds):
+        yield slice(start + 1, stop)
+
+
+def chunks(iterable, n, fillvalue=None):
+    args = [iter(iterable)] * n
+    i = 0
+    for chunk in zip_longest(*args, fillvalue=fillvalue):
+        yield i, tuple(filter(None, chunk))
+        i += n
+
+
+def bincount_unique(x, weights):
+    # passes the following test...
+    # bincount_unique(arr, np.ones_like(arr)) == np.unique(arr, return_counts=True)[1]
+    # find breakpoints with closed invervals, starting with 0
+
+    breaks = np.insert(np.where(x[1:] != x[:-1])[0] + 1, 0, 0)
+    return np.add.reduceat(weights, breaks)
+
+
+def ld_decay(
+    ts: tskit.TreeSequence,
+    chunk_size: int,
+    n_threads: int,
+    max_dist: int,
+    win_size: Optional[int] = None,
+    bins: Optional[NPInt64Array] = None,
+    **ld_kwargs,
+):
+    sites = np.arange(ts.num_sites, dtype=np.int32)
+    pos = ts.tables.sites.position
+    if bins is None:
+        bins = np.arange(0, max_dist + 1, step=win_size, dtype=np.int64)
+    assert len(ld_kwargs.get("sample_sets", [])) <= 1, "only one sample set allowed"
+
+    def worker(args):
+        i, (c_i, chunk) = args
+        result = np.zeros(len(bins) - 1, dtype=np.float64)
+        bin_count = np.zeros(len(bins) - 1, dtype=np.int64)
+        chunk_slice = slice(chunk[0].start - 1, chunk[-1].stop)
+        if "sample_sets" in ld_kwargs:
+            ld = ts.ld_matrix(
+                sites=[sites[c_i : c_i + chunk_size], sites[chunk_slice]], **ld_kwargs
+            )[0]
+        else:
+            ld = ts.ld_matrix(
+                sites=[sites[c_i : c_i + chunk_size], sites[chunk_slice]], **ld_kwargs
+            )
+        for k, (j, s) in enumerate(enumerate(chunk, c_i)):
+            ld_row = ld[k, sites[s] - c_i]  # implicit copy
+            bin_idx = np.searchsorted(bins[1:], pos[s] - pos[j])
+            bin_idx = bin_idx[~np.isnan(ld_row)]
+            ld_row = ld_row[~np.isnan(ld_row)]
+            if len(ld_row) == 0:
+                continue
+            bin_idx_uniq, bc = np.unique(bin_idx, return_counts=True)
+            bin_count[bin_idx_uniq] += bc
+            result[bin_idx_uniq] += bincount_unique(bin_idx, ld_row)
+        return result, bin_count
+
+    work = enumerate(chunks(get_max_dist_slice(pos, max_dist), chunk_size))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as pool:
+        results = pool.map(worker, work)
+    result = []
+    bin_count = []
+    for r, bc in results:
+        result.append(r)
+        bin_count.append(bc)
+    return np.vstack(result).sum(0) / np.vstack(bin_count).sum(0)
+
+
+def ld_decay_two_way(
+    ts: tskit.TreeSequence,
+    chunk_size: int,
+    n_threads: int,
+    max_dist: int,
+    win_size: Optional[int] = None,
+    bins: Optional[NPInt64Array] = None,
+    **ld_kwargs,
+):
+    sites = np.arange(ts.num_sites, dtype=np.int32)
+    pos = ts.tables.sites.position
+    if bins is None:
+        bins = np.arange(0, max_dist + 1, step=win_size, dtype=np.int64)
+
+    def worker(args):
+        i, (c_i, chunk) = args
+        result = np.zeros(len(bins) - 1, dtype=np.float64)
+        bin_count = np.zeros(len(bins) - 1, dtype=np.int64)
+        chunk_slice = slice(chunk[0].start - 1, chunk[-1].stop)
+        ld = ts.ld_matrix_two_way(
+            sites=[sites[c_i : c_i + chunk_size], sites[chunk_slice]], **ld_kwargs
+        )
+        for k, (j, s) in enumerate(enumerate(chunk, c_i)):
+            ld_row = ld[k, sites[s] - c_i]  # implicit copy
+            bin_idx = np.searchsorted(bins[1:], pos[s] - pos[j])
+            bin_idx = bin_idx[~np.isnan(ld_row)]
+            ld_row = ld_row[~np.isnan(ld_row)]
+            if len(ld_row) == 0:
+                continue
+            bin_idx_uniq, bc = np.unique(bin_idx, return_counts=True)
+            bin_count[bin_idx_uniq] += bc
+            result[bin_idx_uniq] += bincount_unique(bin_idx, ld_row)
+        return result, bin_count
+
+    work = enumerate(chunks(get_max_dist_slice(pos, max_dist), chunk_size))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as pool:
+        results = pool.map(worker, work)
+    result = []
+    bin_count = []
+    for r, bc in results:
+        result.append(r)
+        bin_count.append(bc)
+    return np.vstack(result).sum(0) / np.vstack(bin_count).sum(0)
 
 
 ## Plotting functionality
