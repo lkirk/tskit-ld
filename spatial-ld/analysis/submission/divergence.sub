@@ -16,6 +16,6 @@ request_memory          = 4GB
 request_disk            = 1GB
 output                  = output-$(Cluster)/logs/out/$(Process).log
 error                   = output-$(Cluster)/logs/err/$(Process).log
-log                     = output-$(Cluster)/cluster.log
+log                     = $(Cluster).log
 
 queue FILE matching job-params/*.parquet
