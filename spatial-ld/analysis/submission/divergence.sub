@@ -18,4 +18,4 @@ output                  = output-$(Cluster)/logs/out/$(Process).log
 error                   = output-$(Cluster)/logs/err/$(Process).log
 log                     = output-$(Cluster)/cluster.log
 
-queue FILE matching stat-param-df/*.parquet
+queue FILE matching job-params/*.parquet
