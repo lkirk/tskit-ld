@@ -9,11 +9,13 @@ import argparse
 import logging
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 from more_itertools import one
 
 from spatial import (
     compute_divergence_and_geog_distance_for_sim,
+    ld_decay,
     load_ts,
     read_parquet_file,
 )
@@ -64,6 +66,12 @@ def parse_args() -> argparse.Namespace:
         "out_dir", type=parent_exists, help="path to save input dataframes"
     )
 
+    decay = subparsers.add_parser("ld_decay", help="compute ld decay")
+    decay.add_argument("stat", type=str, help="stat to compute")
+    decay.add_argument("in_ts", type=file_exists, help="input tree sequence")
+    decay.add_argument("in_arr", type=file_exists, help="input numpy array")
+    decay.add_argument("out_arr", type=parent_exists, help="output numpy array")
+
     return parser.parse_args()
 
 
@@ -95,5 +103,21 @@ match args.subcommand:
         args.out_dir.mkdir()
         for (run_id,), d in partitions.items():
             d.write_parquet(args.out_dir / f"{run_id}.parquet")
+    case "ld_decay":
+        ts = load_ts(args.in_ts)
+        samples = np.load(args.in_arr)['arr_0']
+        log.info("computing LD decay")
+        decay = ld_decay(
+            ts,
+            max_dist=1_000_000,
+            chunk_size=100,
+            win_size=100,
+            n_threads=1,
+            stat=args.stat,
+            sample_sets=[samples],
+        )
+        np.savez(args.out_arr, decay)
+        log.info("wrote %s", args.out_arr)
+
 
 log.info("complete")
