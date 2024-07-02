@@ -6,7 +6,6 @@ from typing import (
     Any,
     Callable,
     Generator,
-    Iterable,
     Optional,
     Sequence,
     SupportsIndex,
@@ -144,12 +143,16 @@ def read_parquet_file(
     if metadata is False:
         return data
     meta = read_metadata_df(in_path)
+    if not collect:
+        # hack for now
+        return meta, data.cast({"run_id": meta["run_id"].dtype})
     return meta, data
 
 
 def create_pyarrow_dataset(
     in_dir: Path,
     out_dir: Path,
+    partition_keys: list[str],
     flavor: str = "hive",
     compression: str = "ZSTD",
     compression_level: Optional[int] = None,
@@ -160,7 +163,7 @@ def create_pyarrow_dataset(
         compression=compression, compression_level=compression_level
     )
     partitioning = pyarrow.dataset.partitioning(
-        pa.schema([dataset.schema.field("run_id")]), flavor=flavor
+        pa.schema([dataset.schema.field(k) for k in partition_keys]), flavor=flavor
     )
     pyarrow.dataset.write_dataset(
         dataset,
@@ -287,12 +290,16 @@ def process_raw_ind_data_and_write_parquet(
 
 
 def linspace(
-    start: int | float, stop: int | float, num: int, endpoint: bool = True
-) -> pl.Expr:
+    start: int | float,
+    stop: int | float,
+    num: int,
+    endpoint: bool = True,
+    eager: bool = False,
+) -> pl.Expr | pl.Series:
     delta = stop - start
     div = (num - 1) if endpoint else num
     step = delta / div
-    y = (pl.arange(0, num) * step) + start
+    y = (pl.arange(0, num, eager=eager) * step) + start
     if endpoint:
         # lazy equivalent to y[-1] = stop
         y = y.shift(1).shift(-1, fill_value=stop)
@@ -374,10 +381,6 @@ def spatially_sample_individuals_join_data(
     )
 
 
-# def get_individual_nodes(ts, ind):  # TODO: possibly use this?
-#     return np.where(np.isin(ts.nodes_individual, ind))[0].reshape(-1, 2)
-
-
 def simplify_tree_sequence(
     ts: tskit.TreeSequence, sampled: pl.DataFrame
 ) -> tuple[tskit.TreeSequence, NPInt32Array]:
@@ -423,6 +426,7 @@ def simplify_and_mutate_tree_sequence(
     ts = msprime_neutral_mutations(ts, mu, seed)
     ind_nodes_simplified = np.vstack([ts.individual(i).nodes for i in s_ind])
     tszip.compress(ts, out_path)
+    # TODO: store generation time here!!
     return sampled.select("run_id", "ind").with_columns(
         pl.Series("s_ind", s_ind),
         pl.Series("ind_nodes", ind_nodes_simplified, pl.Array(pl.Int32, 2)),
@@ -568,20 +572,22 @@ def ld_decay(
     assert len(ld_kwargs.get("sample_sets", [])) <= 1, "only one sample set allowed"
 
     def worker(args):
-        i, (c_i, chunk) = args
+        chunk_idx, chunk = args
         result = np.zeros(len(bins) - 1, dtype=np.float64)
         bin_count = np.zeros(len(bins) - 1, dtype=np.int64)
         chunk_slice = slice(chunk[0].start - 1, chunk[-1].stop)
         if "sample_sets" in ld_kwargs:
             ld = ts.ld_matrix(
-                sites=[sites[c_i : c_i + chunk_size], sites[chunk_slice]], **ld_kwargs
+                sites=[sites[chunk_idx : chunk_idx + chunk_size], sites[chunk_slice]],
+                **ld_kwargs,
             )[0]
         else:
             ld = ts.ld_matrix(
-                sites=[sites[c_i : c_i + chunk_size], sites[chunk_slice]], **ld_kwargs
+                sites=[sites[chunk_idx : chunk_idx + chunk_size], sites[chunk_slice]],
+                **ld_kwargs,
             )
-        for k, (j, s) in enumerate(enumerate(chunk, c_i)):
-            ld_row = ld[k, sites[s] - c_i]  # implicit copy
+        for k, (j, s) in enumerate(enumerate(chunk, chunk_idx)):
+            ld_row = ld[k, sites[s] - chunk_idx]  # implicit copy
             bin_idx = np.searchsorted(bins[1:], pos[s] - pos[j])
             bin_idx = bin_idx[~np.isnan(ld_row)]
             ld_row = ld_row[~np.isnan(ld_row)]
@@ -592,15 +598,22 @@ def ld_decay(
             result[bin_idx_uniq] += bincount_unique(bin_idx, ld_row)
         return result, bin_count
 
-    work = enumerate(chunks(get_max_dist_slice(pos, max_dist), chunk_size))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as pool:
-        results = pool.map(worker, work)
+    pool = None
+    try:
+        work = chunks(get_max_dist_slice(pos, max_dist), chunk_size)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as pool:
+            results = pool.map(worker, work)
+    except KeyboardInterrupt as e:
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
+        raise e
     result = []
     bin_count = []
     for r, bc in results:
         result.append(r)
         bin_count.append(bc)
-    return np.vstack(result).sum(0) / np.vstack(bin_count).sum(0)
+    count = np.vstack(bin_count).sum(0)
+    return bins, count, np.vstack(result).sum(0) / count
 
 
 def ld_decay_two_way(
@@ -618,15 +631,16 @@ def ld_decay_two_way(
         bins = np.arange(0, max_dist + 1, step=win_size, dtype=np.int64)
 
     def worker(args):
-        i, (c_i, chunk) = args
+        chunk_idx, chunk = args
         result = np.zeros(len(bins) - 1, dtype=np.float64)
         bin_count = np.zeros(len(bins) - 1, dtype=np.int64)
         chunk_slice = slice(chunk[0].start - 1, chunk[-1].stop)
         ld = ts.ld_matrix_two_way(
-            sites=[sites[c_i : c_i + chunk_size], sites[chunk_slice]], **ld_kwargs
+            sites=[sites[chunk_idx : chunk_idx + chunk_size], sites[chunk_slice]],
+            **ld_kwargs,
         )
-        for k, (j, s) in enumerate(enumerate(chunk, c_i)):
-            ld_row = ld[k, sites[s] - c_i]  # implicit copy
+        for k, (j, s) in enumerate(enumerate(chunk, chunk_idx)):
+            ld_row = ld[k, sites[s] - chunk_idx]  # implicit copy
             bin_idx = np.searchsorted(bins[1:], pos[s] - pos[j])
             bin_idx = bin_idx[~np.isnan(ld_row)]
             ld_row = ld_row[~np.isnan(ld_row)]
@@ -637,15 +651,22 @@ def ld_decay_two_way(
             result[bin_idx_uniq] += bincount_unique(bin_idx, ld_row)
         return result, bin_count
 
-    work = enumerate(chunks(get_max_dist_slice(pos, max_dist), chunk_size))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as pool:
-        results = pool.map(worker, work)
+    pool = None
+    try:
+        work = chunks(get_max_dist_slice(pos, max_dist), chunk_size)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as pool:
+            results = pool.map(worker, work)
+    except KeyboardInterrupt as e:
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
+        raise e
     result = []
     bin_count = []
     for r, bc in results:
         result.append(r)
         bin_count.append(bc)
-    return np.vstack(result).sum(0) / np.vstack(bin_count).sum(0)
+    count = np.vstack(bin_count).sum(0)
+    return bins, count, np.vstack(result).sum(0) / count
 
 
 ## Plotting functionality
