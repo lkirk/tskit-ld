@@ -1,0 +1,21 @@
+universe                = docker
+docker_image            = ghcr.io/lkirk/tskit-ld/spatial-analysis$(ContainerHash)
+docker_pull_policy      = always  # this means we always pull from the docker repo (see warnings in docs)
+
+arguments               = ld_decay_2_pop r2 output-$Fn(FILE).trees.tsz $Fnx(FILE) $Fn(FILE)-decay-r2.npz
+transfer_input_files    = file:///staging/lkirk2/trees-simplified/output-$Fn(FILE).trees.tsz, $(FILE)
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_output_files   = $Fn(FILE)-decay-r2.npz
+transfer_output_remaps  = "$Fn(FILE)-decay-r2.npz = output-$(Cluster)/result/$Fn(FILE)-decay-r2.npz"
+Requirements            = (Target.HasCHTCStaging == true) && (TARGET.HasDocker == true)
+
+request_cpus            = 1
+request_memory          = 4GB
+request_disk            = 1GB
+output                  = output-$(Cluster)/logs/out/$(Process).log
+error                   = output-$(Cluster)/logs/err/$(Process).log
+log                     = $(Cluster).log
+
+queue FILE matching job-params/*.npz
