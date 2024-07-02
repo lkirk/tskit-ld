@@ -182,26 +182,38 @@ match args.subcommand:
             list(range(5)) + list(range(6, 8, 2)) + list(range(9, 25, 3)) + [24]
         )
         SDs = meta["SD"].unique().sort()[SD_selections]
+        sampling_times = sampled["sampling_time"].unique().gather_every(4)
         sd_runs = meta.filter(pl.col.SD.is_in(SDs)).select("SD", "run_id")
         run_groups = (
             sampled.select("sampling_time", "run_id", "sample_group", "ind_nodes")
-            .filter(pl.col.run_id.is_in(sd_runs["run_id"]))
+            .filter(
+                pl.col.run_id.is_in(sd_runs["run_id"]),
+                (pl.col.sample_group == 0) | (pl.col.sample_group == 4),
+                pl.col.sampling_time.is_in(sampling_times),
+            )
             .join(sd_runs, on="run_id")
-            .group_by(["run_id", "sample_group"])
+            .group_by(["run_id", "sample_group", "sampling_time"])
             .agg(pl.col.ind_nodes)
-            .partition_by(["run_id"], as_dict=True, include_key=False)
+            .sort("run_id", "sample_group", "sampling_time")
+            .partition_by(
+                ["run_id"], as_dict=True, include_key=False, maintain_order=True
+            )
         )
         sample_sets = dict()
         for (run_id,), rg in run_groups.items():
-            sample_groups = rg.partition_by(
-                ["sample_group"], as_dict=True, include_key=False
+            time_groups = rg.partition_by(
+                ["sampling_time"], as_dict=True, include_key=False, maintain_order=True
             )
-            left = sample_groups[(0,)]["ind_nodes"].explode().to_numpy().flatten()
-            for (sample_group,), sg in sample_groups.items():
+            assert sorted(time_groups) == list(time_groups.keys())
+            for i, ((sampling_time,), sg) in enumerate(time_groups.items()):
+                sample_groups = sg.partition_by(["sample_group"], as_dict=True)
                 sample_set = np.vstack(
-                    [left, sg["ind_nodes"].explode().to_numpy().flatten()]
+                    [
+                        sample_groups[(0,)]["ind_nodes"].explode().to_numpy().flatten(),
+                        sample_groups[(4,)]["ind_nodes"].explode().to_numpy().flatten(),
+                    ]
                 )
-                np.savez(args.out_dir / f"{run_id}-0-{sample_group}", sample_set)
+                np.savez(args.out_dir / f"{run_id}-{i}", sample_set)
 
 
 log.info("complete")
