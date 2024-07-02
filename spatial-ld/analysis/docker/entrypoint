@@ -16,6 +16,7 @@ from more_itertools import one
 from spatial import (
     compute_divergence_and_geog_distance_for_sim,
     ld_decay,
+    ld_decay_two_way,
     load_ts,
     read_parquet_file,
 )
@@ -66,12 +67,40 @@ def parse_args() -> argparse.Namespace:
         "out_dir", type=parent_exists, help="path to save input dataframes"
     )
 
+    prep_decay = subparsers.add_parser(
+        "prepare_ld_decay", help="prepare cluster inputs"
+    )
+    prep_decay.add_argument("in_df", type=file_exists, help="input data frame")
+    prep_decay.add_argument(
+        "out_dir", type=parent_exists, help="path to save input npz"
+    )
+
+    prep_decay_2_pop = subparsers.add_parser(
+        "prepare_ld_decay_2_pop", help="prepare cluster inputs"
+    )
+    prep_decay_2_pop.add_argument("in_df", type=file_exists, help="input data frame")
+    prep_decay_2_pop.add_argument(
+        "out_dir", type=parent_exists, help="path to save input npz"
+    )
+
     decay = subparsers.add_parser("ld_decay", help="compute ld decay")
     decay.add_argument("stat", type=str, help="stat to compute")
     decay.add_argument("in_ts", type=file_exists, help="input tree sequence")
     decay.add_argument("in_arr", type=file_exists, help="input numpy array")
     decay.add_argument("out_arr", type=parent_exists, help="output numpy array")
+    decay.add_argument(
+        "--threads", type=int, default=1, help="number of threads to use"
+    )
 
+    decay_2_pop = subparsers.add_parser("ld_decay_2_pop", help="compute ld decay")
+    decay_2_pop.add_argument("stat", type=str, help="stat to compute")
+    # Hack for now.. path
+    decay_2_pop.add_argument("in_ts", type=Path, help="input tree sequence")
+    decay_2_pop.add_argument("in_arr", type=file_exists, help="input numpy array")
+    decay_2_pop.add_argument("out_arr", type=parent_exists, help="output numpy array")
+    decay_2_pop.add_argument(
+        "--threads", type=int, default=1, help="number of threads to use"
+    )
     return parser.parse_args()
 
 
@@ -105,19 +134,79 @@ match args.subcommand:
             d.write_parquet(args.out_dir / f"{run_id}.parquet")
     case "ld_decay":
         ts = load_ts(args.in_ts)
-        samples = np.load(args.in_arr)['arr_0']
+        samples = np.load(args.in_arr)["arr_0"]
         log.info("computing LD decay")
         decay = ld_decay(
             ts,
             max_dist=1_000_000,
             chunk_size=100,
             win_size=100,
-            n_threads=1,
+            n_threads=args.threads,
             stat=args.stat,
             sample_sets=[samples],
         )
         np.savez(args.out_arr, decay)
         log.info("wrote %s", args.out_arr)
+    case "ld_decay_2_pop":
+        in_path = args.in_ts.with_name(
+            # hack for now
+            "-".join(args.in_ts.name.split("-")[0:3])
+        ).with_suffix(".trees.tsz")
+        ts = load_ts(args.in_ts)
+        samples = np.load(args.in_arr)["arr_0"]
+        assert samples.shape[0] == 2, "must be only 2 sample sets"
+        log.info("computing LD decay (two pop)")
+        bins, count, decay = ld_decay_two_way(
+            ts,
+            max_dist=1_000_000,
+            chunk_size=100,
+            win_size=100,
+            n_threads=args.threads,
+            stat=args.stat,
+            sample_sets=samples,
+        )
+        np.savez(args.out_arr, decay=decay, bins=bins, count=count)
+        log.info("wrote %s", args.out_arr)
+    case "prepare_ld_decay":
+        sampled = read_parquet_file(args.in_df, collect=True)
+        assert isinstance(sampled, pl.DataFrame)  # mypy
+        args.out_dir.mkdir()
+        for run_id in sampled["run_id"].unique():
+            sample_set = (
+                sampled.filter(pl.col.run_id == run_id)["ind_nodes"]
+                .to_numpy()
+                .flatten()
+            )
+            np.savez(args.out_dir / run_id, sample_set)
+    case "prepare_ld_decay_2_pop":
+        meta, sampled = read_parquet_file(args.in_df, metadata=True, collect=True)
+        assert isinstance(meta, pl.DataFrame)  # mypy
+        assert isinstance(sampled, pl.DataFrame)  # mypy
+        args.out_dir.mkdir()
+        SD_selections = (
+            list(range(5)) + list(range(6, 8, 2)) + list(range(9, 25, 3)) + [24]
+        )
+        SDs = meta["SD"].unique().sort()[SD_selections]
+        sd_runs = meta.filter(pl.col.SD.is_in(SDs)).select("SD", "run_id")
+        run_groups = (
+            sampled.select("sampling_time", "run_id", "sample_group", "ind_nodes")
+            .filter(pl.col.run_id.is_in(sd_runs["run_id"]))
+            .join(sd_runs, on="run_id")
+            .group_by(["run_id", "sample_group"])
+            .agg(pl.col.ind_nodes)
+            .partition_by(["run_id"], as_dict=True, include_key=False)
+        )
+        sample_sets = dict()
+        for (run_id,), rg in run_groups.items():
+            sample_groups = rg.partition_by(
+                ["sample_group"], as_dict=True, include_key=False
+            )
+            left = sample_groups[(0,)]["ind_nodes"].explode().to_numpy().flatten()
+            for (sample_group,), sg in sample_groups.items():
+                sample_set = np.vstack(
+                    [left, sg["ind_nodes"].explode().to_numpy().flatten()]
+                )
+                np.savez(args.out_dir / f"{run_id}-0-{sample_group}", sample_set)
 
 
 log.info("complete")
