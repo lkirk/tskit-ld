@@ -94,8 +94,7 @@ def parse_args() -> argparse.Namespace:
 
     decay_2_pop = subparsers.add_parser("ld_decay_2_pop", help="compute ld decay")
     decay_2_pop.add_argument("stat", type=str, help="stat to compute")
-    # Hack for now.. path
-    decay_2_pop.add_argument("in_ts", type=Path, help="input tree sequence")
+    decay_2_pop.add_argument("in_ts", type=file_exists, help="input tree sequence")
     decay_2_pop.add_argument("in_arr", type=file_exists, help="input numpy array")
     decay_2_pop.add_argument("out_arr", type=parent_exists, help="output numpy array")
     decay_2_pop.add_argument(
@@ -148,10 +147,6 @@ match args.subcommand:
         np.savez(args.out_arr, decay)
         log.info("wrote %s", args.out_arr)
     case "ld_decay_2_pop":
-        in_path = args.in_ts.with_name(
-            # hack for now
-            "-".join(args.in_ts.name.split("-")[0:3])
-        ).with_suffix(".trees.tsz")
         ts = load_ts(args.in_ts)
         samples = np.load(args.in_arr)["arr_0"]
         assert samples.shape[0] == 2, "must be only 2 sample sets"
