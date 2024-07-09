@@ -6,18 +6,23 @@ os.environ["POLARS_MAX_THREADS"] = "17"
 os.environ["OMP_NUM_THREADS"] = "17"
 
 import argparse
+import io
 import logging
+import string
+from itertools import product
 from pathlib import Path
 
+import demes
+import msprime
 import numpy as np
 import polars as pl
+import tszip
 from more_itertools import one
 
 from spatial import (
     compute_divergence_and_geog_distance_for_sim,
     ld_decay,
     ld_decay_two_way,
-    load_ts,
     read_parquet_file,
 )
 
@@ -100,6 +105,20 @@ def parse_args() -> argparse.Namespace:
     decay_2_pop.add_argument(
         "--threads", type=int, default=1, help="number of threads to use"
     )
+
+    expl_sims = subparsers.add_parser(
+        "exploratory_simulations", help="run exploratory simulations"
+    )
+    expl_sims.add_argument("out_df", type=parent_exists, help="output data frame")
+    expl_sims.add_argument(
+        "--sampling-times", type=int, nargs="*", help="times to sample", required=True
+    )
+    expl_sims.add_argument("--stat", help="stat to compute", required=True)
+    expl_sims.add_argument(
+        "--n-reps", type=int, help="number of msprime reps to run", required=True
+    )
+    expl_sims.add_argument("--mig-rate", type=int, help="migration rate", required=True)
+
     return parser.parse_args()
 
 
@@ -109,7 +128,7 @@ log.info("input parameters: %s", args)
 
 match args.subcommand:
     case "compute_divergence":
-        ts = load_ts(args.in_ts)
+        ts = tszip.load(args.in_ts)
         df = pl.read_parquet(args.in_df)
         assert one(df["run_id"].unique()) in str(
             args.in_ts
@@ -131,8 +150,9 @@ match args.subcommand:
         args.out_dir.mkdir()
         for (run_id,), d in partitions.items():
             d.write_parquet(args.out_dir / f"{run_id}.parquet")
+
     case "ld_decay":
-        ts = load_ts(args.in_ts)
+        ts = tszip.load(args.in_ts)
         samples = np.load(args.in_arr)["arr_0"]
         log.info("computing LD decay")
         decay = ld_decay(
@@ -146,8 +166,9 @@ match args.subcommand:
         )
         np.savez(args.out_arr, decay)
         log.info("wrote %s", args.out_arr)
+
     case "ld_decay_2_pop":
-        ts = load_ts(args.in_ts)
+        ts = tszip.load(args.in_ts)
         samples = np.load(args.in_arr)["arr_0"]
         assert samples.shape[0] == 2, "must be only 2 sample sets"
         log.info("computing LD decay (two pop)")
@@ -162,6 +183,7 @@ match args.subcommand:
         )
         np.savez(args.out_arr, decay=decay, bins=bins, count=count)
         log.info("wrote %s", args.out_arr)
+
     case "prepare_ld_decay":
         sampled = read_parquet_file(args.in_df, collect=True)
         assert isinstance(sampled, pl.DataFrame)  # mypy
@@ -173,47 +195,203 @@ match args.subcommand:
                 .flatten()
             )
             np.savez(args.out_dir / run_id, sample_set)
+
     case "prepare_ld_decay_2_pop":
         meta, sampled = read_parquet_file(args.in_df, metadata=True, collect=True)
         assert isinstance(meta, pl.DataFrame)  # mypy
         assert isinstance(sampled, pl.DataFrame)  # mypy
         args.out_dir.mkdir()
-        SD_selections = (
-            list(range(5)) + list(range(6, 8, 2)) + list(range(9, 25, 3)) + [24]
-        )
+        # SD_selections = [0, 1, 2, 3, 4, 6, 12, 18, 24]
+        SD_selections = [0, 2, 4, 12, 24]
         SDs = meta["SD"].unique().sort()[SD_selections]
-        sampling_times = sampled["sampling_time"].unique().gather_every(4)
-        sd_runs = meta.filter(pl.col.SD.is_in(SDs)).select("SD", "run_id")
-        run_groups = (
+        # sampling_times = sampled["sampling_time"].unique().gather_every(4)
+        sd_runs = (
+            meta.filter(pl.col.SD.is_in(SDs))
+            .select("SD", "run_id")
+            .group_by("SD")
+            .agg(pl.col.run_id.sample(100, seed=23))
+            .explode("run_id")
+        )
+        time_groups = (
             sampled.select("sampling_time", "run_id", "sample_group", "ind_nodes")
             .filter(
                 pl.col.run_id.is_in(sd_runs["run_id"]),
                 (pl.col.sample_group == 0) | (pl.col.sample_group == 4),
-                pl.col.sampling_time.is_in(sampling_times),
+                # pl.col.sampling_time.is_in(sampling_times),
             )
             .join(sd_runs, on="run_id")
             .group_by(["run_id", "sample_group", "sampling_time"])
             .agg(pl.col.ind_nodes)
             .sort("run_id", "sample_group", "sampling_time")
             .partition_by(
+                ["sampling_time"], as_dict=True, include_key=False, maintain_order=True
+            )
+        )
+        time_0_g0 = (
+            time_groups[(0,)]
+            .filter(pl.col.sample_group == 0)
+            .partition_by(
                 ["run_id"], as_dict=True, include_key=False, maintain_order=True
             )
         )
+        # hack for now to use htcondor string trimming
+        file_names = dict(zip(sorted(time_groups), string.ascii_lowercase))
         sample_sets = dict()
-        for (run_id,), rg in run_groups.items():
-            time_groups = rg.partition_by(
-                ["sampling_time"], as_dict=True, include_key=False, maintain_order=True
+        for (time_group,) in sorted(time_groups)[:-10]:
+            run_groups = time_groups[(time_group,)].partition_by(
+                ["run_id"], as_dict=True, include_key=False, maintain_order=True
             )
-            assert sorted(time_groups) == list(time_groups.keys())
-            for i, ((sampling_time,), sg) in enumerate(time_groups.items()):
-                sample_groups = sg.partition_by(["sample_group"], as_dict=True)
-                sample_set = np.vstack(
-                    [
-                        sample_groups[(0,)]["ind_nodes"].explode().to_numpy().flatten(),
-                        sample_groups[(4,)]["ind_nodes"].explode().to_numpy().flatten(),
-                    ]
+
+            for (run_id,), run_df in run_groups.items():
+                sample_groups = run_df.partition_by(
+                    ["sample_group"],
+                    as_dict=True,
+                    include_key=False,
+                    maintain_order=True,
                 )
-                np.savez(args.out_dir / f"{run_id}-{i}", sample_set)
+                for (g,), sg in sample_groups.items():
+                    sample_set = np.vstack(
+                        [
+                            time_0_g0[(run_id,)]["ind_nodes"]
+                            .explode()
+                            .to_numpy()
+                            .flatten(),
+                            sg["ind_nodes"].explode().to_numpy().flatten(),
+                        ]
+                    )
+                    assert (run_id, time_group, g) not in sample_sets
+                    sample_sets[run_id, time_group, g] = sample_set
+
+        for (run_id, sampling_time, r_ind), sample_set in sample_sets.items():
+            np.savez(
+                args.out_dir / f"{run_id}-{file_names[(sampling_time,)]}-{r_ind}",
+                sample_set,
+            )
+
+    case "exploratory_simulations":
+
+        def run_msprime(sampling_times, mut_rate, demog, n_reps):
+            tss = msprime.sim_ancestry(
+                samples=[
+                    msprime.SampleSet(40, population=p, time=t)
+                    for p, t in product(["A", "B"], sampling_times)
+                ],
+                sequence_length=L,
+                recombination_rate=r,
+                demography=msprime.Demography.from_demes(demog),
+                random_seed=SEED,
+                num_replicates=n_reps,
+            )
+            return [
+                msprime.sim_mutations(ts, rate=mut_rate, random_seed=SEED) for ts in tss
+            ]
+
+        def compute_decay_two_way(tss, sampling_times, stat="r2"):
+            for ts in tss:
+                a_ss = [ts.samples(1, time=t) for t in sampling_times]
+                b_ss = [ts.samples(2, time=t) for t in sampling_times]
+                out = []
+                for a, b in zip(a_ss, b_ss):
+                    out.append(
+                        ld_decay_two_way(
+                            ts,
+                            max_dist=100_000,
+                            win_size=100,
+                            chunk_size=100,
+                            n_threads=18,
+                            stat=stat,
+                            sample_sets=[a, b],
+                        )
+                    )
+                yield out
+
+        def compute_decay(tss, sampling_times, n_threads, stat="r2"):
+            for ts in tss:
+                a_ss = [ts.samples(1, time=t) for t in sampling_times]
+                # b_ss = [ts.samples(2, time=t) for t in sampling_times]
+                out = []
+                for a in a_ss:
+                    out.append(
+                        ld_decay(
+                            ts,
+            max_dist=1_000_000,
+            chunk_size=100,
+            win_size=100,
+                            n_threads=n_threads,
+                            stat=stat,
+                            sample_sets=[a],
+                        )
+                    )
+                yield out
+
+        def avg_decay(decays):
+            outs = []
+            mean = np.dstack([[d for _, _, d in r] for r in decays]).mean(2)
+            bins = np.vstack([r[0][0] for r in decays])
+            return bins, mean
+
+        def result_to_df(sampling_times, decay):
+            out = dict()
+            for rep, data in enumerate(decay):
+                for t_i, (b, c, d) in enumerate(data):
+                    dcy = np.insert(d, 0, np.nan)
+                    t = sampling_times[t_i]
+                    for k, v in [
+                        (f"bins_{rep}_{t}", b),
+                        (f"decay_{rep}_{t}", dcy),
+                    ]:
+                        out[k] = v
+            return pl.DataFrame(out)
+
+        def get_demes(Ne, mig):
+            if mig == 0:
+                migrations = ""
+            elif mig > 0:
+                migrations = f"""\
+            migrations:
+              - demes: [A, B]
+                rate: {mig}
+            """
+            else:
+                raise Exception("migration rate cannot be negative")
+            return demes.load(
+                io.StringIO(
+                    f"""
+            time_units: generations
+            defaults:
+              epoch:
+                start_size: {Ne}
+            demes:
+              - name: X
+                epochs:
+                  - end_time: 5000
+              - name: A
+                ancestors: [X]
+              - name: B
+                ancestors: [X]
+        {migrations}
+            """
+                )
+            )
+
+        SEED = 23
+        Ne = 4_000
+        r = 1e-8
+        L = 1e8
+        mu = 1e-8
+
+        sampling_times = np.array(args.sampling_times)
+        tss = run_msprime(sampling_times, mu, get_demes(Ne, args.mig_rate), args.n_reps)
+        decay = compute_decay(tss, sampling_times, args.n_threads, args.stat)
+        decay_two_way = compute_decay_two_way(tss, sampling_times)
+        result = pl.concat(
+            [
+                result_to_df(sampling_times, decay).rename(lambda s: s + "-1"),
+                result_to_df(sampling_times, decay_two_way).rename(lambda s: s + "-2"),
+            ],
+            how="horizontal",
+        )
+        result.write_parquet(args.out_df)
 
 
 log.info("complete")
