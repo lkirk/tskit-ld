@@ -111,7 +111,7 @@ def parse_args() -> argparse.Namespace:
     )
     expl_sims.add_argument("out_df", type=parent_exists, help="output data frame")
     expl_sims.add_argument(
-        "--sampling-times", type=str, nargs="*", help="times to sample", required=True
+        "--sampling-times", type=str, help="times to sample", required=True
     )
     expl_sims.add_argument("--stat", help="stat to compute", required=True)
     expl_sims.add_argument(
