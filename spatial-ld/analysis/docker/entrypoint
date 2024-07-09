@@ -348,28 +348,28 @@ match args.subcommand:
                 migrations = ""
             elif mig > 0:
                 migrations = f"""\
-            migrations:
-              - demes: [A, B]
-                rate: {mig}
+migrations:
+  - demes: [A, B]
+    rate: {mig}
             """
             else:
                 raise Exception("migration rate cannot be negative")
             return demes.load(
                 io.StringIO(
                     f"""
-            time_units: generations
-            defaults:
-              epoch:
-                start_size: {Ne}
-            demes:
-              - name: X
-                epochs:
-                  - end_time: 5000
-              - name: A
-                ancestors: [X]
-              - name: B
-                ancestors: [X]
-        {migrations}
+time_units: generations
+defaults:
+  epoch:
+    start_size: {Ne}
+demes:
+  - name: X
+    epochs:
+      - end_time: 5000
+  - name: A
+    ancestors: [X]
+  - name: B
+    ancestors: [X]
+{migrations}
             """
                 )
             )
