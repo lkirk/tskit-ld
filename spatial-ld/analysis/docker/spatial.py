@@ -1,16 +1,9 @@
 import concurrent.futures
 import json
+import re
 from itertools import combinations_with_replacement, zip_longest
 from pathlib import Path
-from typing import (
-    Any,
-    Callable,
-    Generator,
-    Optional,
-    Sequence,
-    SupportsIndex,
-    cast,
-)
+from typing import Any, Callable, Generator, Optional, Sequence, SupportsIndex, cast
 
 import matplotlib.pyplot as plt
 import msprime
@@ -19,8 +12,8 @@ import numpy.typing as npt
 import polars as pl
 import polars.type_aliases
 import pyarrow as pa
-import pyarrow.parquet as pq
 import pyarrow.dataset
+import pyarrow.parquet as pq
 import pyslim
 import tskit
 import tszip
@@ -40,6 +33,26 @@ NPInt32Array = npt.NDArray[np.int32]
 IntoExpr = polars.type_aliases.IntoExpr
 
 
+def parse_id(p: Path | str, pat: str) -> str:
+    result = re.search(pat, str(p))
+    if result is None:
+        raise ValueError(f"Could not find {pat} in {p}")
+    return result.group(1)
+
+
+def glob_and_parse_id(
+    path: Path, glob: str, pat: str, return_ids=False
+) -> tuple[list[str], dict[str, Path]] | dict[str, Path]:
+    paths = list(path.glob(glob))
+    out = {parse_id(p, pat): p for p in paths}
+    if len(paths) != len(out):
+        raise ValueError("run ids not unique")
+    if return_ids is True:
+        ids = sorted(out, key=lambda k: tuple(map(int, k.split("-"))))
+        return ids, out
+    return out
+
+
 def get_seed(size: NPShapeLike = None) -> int | NPInt64Array:
     """
     Generate random seeds for sampling processes. We seed our RNG to
@@ -52,10 +65,6 @@ def get_seed(size: NPShapeLike = None) -> int | NPInt64Array:
 
 
 ## General Data IO functionality, used in most steps
-
-
-def load_ts(ts_path: Path) -> tskit.TreeSequence:
-    return cast(tskit.TreeSequence, tszip.load(ts_path))
 
 
 def write_parquet(
@@ -244,7 +253,7 @@ def read_ts_and_process_spatial_data(
     run_id: str,
     run_ids: pl.Enum,
 ) -> tuple[dict[str, str], pl.DataFrame]:
-    ts = load_ts(ts_path)
+    ts = tszip.load(ts_path)
     assert (
         np.array([t.num_roots for t in ts.trees()]) == 1
     ).all(), "not all trees have coalesced"
@@ -420,7 +429,7 @@ def simplify_and_mutate_tree_sequence(
     in_path: Path, out_path: Path, sampled: pl.DataFrame, mu: float, seed: int
 ) -> pl.DataFrame:
     assert out_path.parent.exists(), f"{out_path.parent} does not exist"
-    ts = load_ts(in_path)
+    ts = tszip.load(in_path)
     # obtain simplified tree sequence and our new sampled individual ids
     ts, s_ind = simplify_tree_sequence(ts, sampled)
     ts = msprime_neutral_mutations(ts, mu, seed)
