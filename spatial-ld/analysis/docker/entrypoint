@@ -111,7 +111,7 @@ def parse_args() -> argparse.Namespace:
     )
     expl_sims.add_argument("out_df", type=parent_exists, help="output data frame")
     expl_sims.add_argument(
-        "--sampling-times", type=int, nargs="*", help="times to sample", required=True
+        "--sampling-times", type=str, nargs="*", help="times to sample", required=True
     )
     expl_sims.add_argument("--stat", help="stat to compute", required=True)
     expl_sims.add_argument(
@@ -380,7 +380,7 @@ match args.subcommand:
         L = 1e8
         mu = 1e-8
 
-        sampling_times = np.array(args.sampling_times)
+        sampling_times = np.array([int(v) for v in args.sampling_times.split(":")])
         tss = run_msprime(sampling_times, mu, get_demes(Ne, args.mig_rate), args.n_reps)
         decay = compute_decay(tss, sampling_times, args.n_threads, args.stat)
         decay_two_way = compute_decay_two_way(tss, sampling_times)
