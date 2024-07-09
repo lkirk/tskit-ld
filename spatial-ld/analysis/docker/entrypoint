@@ -117,7 +117,7 @@ def parse_args() -> argparse.Namespace:
     expl_sims.add_argument(
         "--n-reps", type=int, help="number of msprime reps to run", required=True
     )
-    expl_sims.add_argument("--mig-rate", type=int, help="migration rate", required=True)
+    expl_sims.add_argument("--mig-rate", type=float, help="migration rate", required=True)
 
     return parser.parse_args()
 
