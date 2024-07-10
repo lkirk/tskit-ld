@@ -296,9 +296,12 @@ match args.subcommand:
                     out.append(
                         ld_decay_two_way(
                             ts,
-                            max_dist=100_000,
-                            win_size=100,
+                            # max_dist=100_000,
+                            # win_size=100,
+                            # chunk_size=100,
+                            max_dist=1_000_000,
                             chunk_size=100,
+                            win_size=100,
                             n_threads=18,
                             stat=stat,
                             sample_sets=[a, b],
@@ -315,9 +318,9 @@ match args.subcommand:
                     out.append(
                         ld_decay(
                             ts,
-            max_dist=1_000_000,
-            chunk_size=100,
-            win_size=100,
+                            max_dist=1_000_000,
+                            chunk_size=100,
+                            win_size=100,
                             n_threads=n_threads,
                             stat=stat,
                             sample_sets=[a],
