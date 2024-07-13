@@ -7,6 +7,12 @@ RUN \
 	rm -rf /var/lib/apt/lists/*
 
 ADD requirements-frozen.txt .
+
+# we've already installed tskit in the base container
+RUN grep -v tskit requirements-frozen.txt > requirements-frozen-no-tskit.txt
+
+RUN pip wheel -r requirements-frozen-no-tskit.txt --wheel-dir /wheels
+
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels \
 	'tskit-ld@git+https://github.com/lkirk/tskit-ld.git'
 
