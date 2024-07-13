@@ -1,15 +1,20 @@
 FROM ghcr.io/lkirk/tskit-ld/ld-base as build
 
-ADD requirements-frozen.txt .
+RUN \
+	set -ex; \
+	apt-get update; \
+	apt-get install -y git; \
+	rm -rf /var/lib/apt/lists/*
 
-RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels -r requirements-frozen.txt
+ADD requirements-frozen.txt .
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels \
+	'tskit-ld@git+https://github.com/lkirk/tskit-ld.git'
 
 FROM ghcr.io/lkirk/tskit-ld/ld-base as analysis
 
 COPY --from=build /wheels /wheels
 
 RUN pip install --no-cache --no-deps /wheels/* && rm -r /wheels
-RUN pip install 'tskit-ld@git+https://github.com/lkirk/tskit-ld.git'
 
 WORKDIR /opt
 
