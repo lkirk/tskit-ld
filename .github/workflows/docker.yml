@@ -81,7 +81,7 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          file: ${{ matrix.container.file }}
+          file: docker/derived/${{ matrix.container.file }}
 
   build-standalone-containers:
     runs-on: ubuntu-latest
