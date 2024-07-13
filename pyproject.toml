@@ -1,0 +1,18 @@
+[project]
+name = "tskit-ld"
+version = "0.1"
+dynamic = ["dependencies"]
+
+[build-system]
+requires = ["pip==24.1.1", "setuptools==70.1.1"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+# setuptools will ignore missing requirements
+# inside of a docker build, requirements are in the cwd
+# outside of a docker build, they are in the docker context
+dependencies = {file = ["docker/derived/requirements-frozen.txt", "requirements-frozen.txt"]}
+
+[tool.pyright]
+venvPath = "."
+venv = "ve"

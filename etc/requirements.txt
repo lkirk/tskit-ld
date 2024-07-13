@@ -1,5 +1,4 @@
 # Requirements for editing, analysis, and data processing
-# TODO: freeze the versions used
 black
 demesdraw
 great_tables
@@ -12,8 +11,11 @@ joblib
 matplotlib
 moments-popgen
 more-itertools
+palettable
 pandas
 polars
 pyarrow
 pyslim
 tszip
+htcluster@git+ssh://git@github.com/lkirk/htcluster
+tskit@git+https://github.com/lkirk/tskit.git@two-locus-staging#egg=tskit&subdirectory=python

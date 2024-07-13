@@ -9,10 +9,9 @@ RUN \
 RUN \
 	set -ex; \
 	pip install -U 'pip==24.1.1' 'setuptools==70.1.1'; \
-	git clone https://github.com/lkirk/tskit -b two-locus-staging; \
-	cd tskit/python; \
-	make; \
-	pip wheel --no-cache-dir --no-deps --wheel-dir /wheels /tskit/python
+	pip wheel --no-cache-dir --no-deps --wheel-dir /wheels \
+	'tskit@git+https://github.com/lkirk/tskit.git@two-locus-staging#egg=tskit&subdirectory=python'
+
 
 FROM python:3.11-slim-bullseye as base
 

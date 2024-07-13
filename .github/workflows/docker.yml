@@ -43,12 +43,12 @@ jobs:
     strategy:
       matrix:
         container:
-          - name: validation
-            context: validation/sim/docker
-          - name: benchmarks
-            context: benchmarks/sim/docker
+          # - name: validation
+          #   file: Dockerfile-validation
+          # - name: benchmarks
+          #   file: Dockerfile-benchmarks
           - name: spatial-analysis
-            context: spatial-ld/analysis/docker
+            file: Dockerfile-spatial-analysis
 
     permissions:  # Sets the permissions granted to the `GITHUB_TOKEN`
       contents: read
@@ -77,10 +77,11 @@ jobs:
       - name: Build and push ${{ matrix.container.name }}
         uses: docker/build-push-action@v4
         with:
-          context: ${{ matrix.container.context }}
+          context: docker/derived
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
+          file: ${{ matrix.container.file }}
 
   build-standalone-containers:
     runs-on: ubuntu-latest

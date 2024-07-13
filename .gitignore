@@ -1,4 +1,18 @@
-ve/
+# python tmp files
 __pycache__/
+*.egg-info/
+*.egg
+
+# virtual environment
+ve/
+
+# emacs tmp files
+*.~undo-tree~
+**/#*#
+**/.#*
+
+# ipython
 .ipynb_checkpoints/
+
+# bak folder for old stuff
 bak/

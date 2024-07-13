@@ -4,12 +4,8 @@ set -euo pipefail
 
 REPO_DIR="$(realpath "$(dirname "$(readlink -f "$0")")/..")"
 
+[[ -e "$REPO_DIR/ve" ]] && (echo "$REPO_DIR/ve" exists, delete or move first; exit 1)
+cd "$REPO_DIR"
 python -m venv ve
 source ve/bin/activate
-pip install -U pip setuptools
-pip install -r "$REPO_DIR/etc/requirements.txt"
-cd ve
-git clone -b two-locus-staging git@github.com:lkirk/tskit.git lkirk-tskit
-cd lkirk-tskit/python
-make
-pip install .
+pip install -e .
