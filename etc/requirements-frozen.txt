@@ -12,6 +12,7 @@ joblib==1.4.2
 matplotlib==3.9.0
 moments-popgen==1.2.1
 more-itertools==10.3.0
+palettable==3.3.3
 pandas==2.2.2
 polars==0.20.31
 pyarrow==16.1.0
