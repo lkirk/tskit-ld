@@ -9,6 +9,7 @@ ExecStart=/bin/bash -c ' \
 '
 ExecStop=/usr/bin/emacsclient -s tskit-ld --eval "(kill-emacs)"
 Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
+Environment=PYTHONPATH=%h/repo/tskit-ld/spatial-ld/analysis/spatial-positions
 Restart=always
 
 [Install]
