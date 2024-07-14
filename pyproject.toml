@@ -14,3 +14,7 @@ optional-dependencies.frozen = {file = ["docker/derived/requirements-frozen.txt"
 [tool.pyright]
 venvPath = "."
 venv = "ve"
+stubPath = "src/stubs"
+
+[tool.isort]
+profile = "black"
