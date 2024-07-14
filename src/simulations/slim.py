@@ -1,8 +1,11 @@
 import subprocess
+import sys
 from pathlib import Path
 
 import structlog
 from pydantic import BaseModel, field_validator
+
+structlog.configure(logger_factory=structlog.PrintLoggerFactory(sys.stderr))
 
 
 class SlimParams(BaseModel):
@@ -35,8 +38,8 @@ class SLiMJobArgs(BaseModel):
 
 
 def main(args: SLiMJobArgs) -> None:
-    log = structlog.get_logger()
-    log.info("starting", workflow="test")
+    log = structlog.get_logger(module=__name__)
+    log.info("starting")
 
     params_file = Path("params.json")
     if params_file.exists():
