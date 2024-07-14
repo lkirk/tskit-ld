@@ -17,7 +17,7 @@ RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels \
 FROM ghcr.io/lkirk/tskit-ld/ld-base as analysis
 
 COPY --from=build /wheels /wheels
-RUN pip install --no-cache --no-deps /wheels/* && rm -r /wheels
+RUN pip install --ignore-installed --no-cache --no-deps /wheels/* && rm -r /wheels
 WORKDIR /opt
 
 ENTRYPOINT ["htcluster-wrapper"]
