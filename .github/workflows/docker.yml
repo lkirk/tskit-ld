@@ -28,6 +28,8 @@ jobs:
           tags: |
             # set latest tag for default branch
             type=raw,value=latest,enable={{is_default_branch}}
+            # full length sha from trigger commit
+            type=sha,format=long
 
       - name: Build and push ld-base
         uses: docker/build-push-action@v4
@@ -73,6 +75,8 @@ jobs:
           tags: |
             # set latest tag for default branch
             type=raw,value=latest,enable={{is_default_branch}}
+            # full length sha from trigger commit
+            type=sha,format=long
 
       - name: Build and push ${{ matrix.container.name }}
         uses: docker/build-push-action@v4
@@ -89,7 +93,7 @@ jobs:
       matrix:
         container:
           - name: spatial-ld-slim
-            context: spatial-ld/sim/docker
+            context: docker/slim
 
     permissions:  # Sets the permissions granted to the `GITHUB_TOKEN`
       contents: read
@@ -114,6 +118,8 @@ jobs:
           tags: |
             # set latest tag for default branch
             type=raw,value=latest,enable={{is_default_branch}}
+            # full length sha from trigger commit
+            type=sha,format=long
 
       - name: Build and push ${{ matrix.container.name }}
         uses: docker/build-push-action@v4
