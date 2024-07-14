@@ -28,8 +28,6 @@ jobs:
           tags: |
             # set latest tag for default branch
             type=raw,value=latest,enable={{is_default_branch}}
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build and push ld-base
         uses: docker/build-push-action@v4
@@ -75,8 +73,6 @@ jobs:
           tags: |
             # set latest tag for default branch
             type=raw,value=latest,enable={{is_default_branch}}
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build and push ${{ matrix.container.name }}
         uses: docker/build-push-action@v4
@@ -118,8 +114,6 @@ jobs:
           tags: |
             # set latest tag for default branch
             type=raw,value=latest,enable={{is_default_branch}}
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build and push ${{ matrix.container.name }}
         uses: docker/build-push-action@v4
