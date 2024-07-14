@@ -1,11 +1,9 @@
 # Requirements for editing, analysis, and data processing
-black
 demesdraw
 great_tables
 ipdb
 ipykernel
 ipython
-isort
 itables
 joblib
 matplotlib
