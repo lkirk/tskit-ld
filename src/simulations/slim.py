@@ -1,11 +1,9 @@
 import subprocess
-import sys
 from pathlib import Path
 
 import structlog
+from job_wrapper.job import job_wrapper
 from pydantic import BaseModel, field_validator
-
-structlog.configure(logger_factory=structlog.PrintLoggerFactory(sys.stderr))
 
 
 class SlimParams(BaseModel):
@@ -37,6 +35,7 @@ class SLiMJobArgs(BaseModel):
     params: SlimParams
 
 
+@job_wrapper(SLiMJobArgs)
 def main(args: SLiMJobArgs) -> None:
     log = structlog.get_logger(module=__name__)
     log.info("starting")
