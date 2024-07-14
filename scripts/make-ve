@@ -1,11 +1,42 @@
 #!/bin/bash
 
-set -euo pipefail
+set -eo pipefail
+
+ARGS=$(getopt -o h,u: --longoptions help,update -n make-ve -- "$@")
+
+usage () {
+    echo "usage: make-ve [--update] [--help]"
+    exit 1
+}
+
+eval set -- "$ARGS"
+
+UPDATE=''
+while true; do
+    case "$1" in
+	-u | --update) UPDATE="1"; shift 2;;
+	-h | --help) usage;;
+	-- ) shift; break;;
+	* ) break;;
+    esac
+done
+
+set -u
 
 REPO_DIR="$(realpath "$(dirname "$(readlink -f "$0")")/..")"
 
 [[ -e "$REPO_DIR/ve" ]] && (echo "$REPO_DIR/ve" exists, delete or move first; exit 1)
-cd "$REPO_DIR"
 python -m venv ve
+# shellcheck disable=SC1091
 source ve/bin/activate
-pip install -e .
+
+if [[ -z "$UPDATE" ]]; then
+    pip install -e '.[frozen]'
+else
+    pip install -e .
+    pip freeze -r "$REPO_DIR/etc/requirements.txt" | grep -v 'git@github.com/lkirk/tskit-ld' > "$REPO_DIR/docker/derived/requirements-frozen.txt"
+
+    echo "requirements diff ==================================="
+    git diff "$REPO_DIR/docker/derived/requirements-frozen.txt"
+    echo "requirements diff ==================================="
+fi
