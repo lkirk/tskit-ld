@@ -7,21 +7,17 @@ RUN \
 	rm -rf /var/lib/apt/lists/*
 
 ADD requirements-frozen.txt .
-
 # we've already installed tskit in the base container
 RUN grep -v tskit requirements-frozen.txt > requirements-frozen-no-tskit.txt
-
 RUN pip wheel -r requirements-frozen-no-tskit.txt --wheel-dir /wheels
-
+# pip grabs the requirements txt from the repo, so we edit above
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels \
 	'tskit-ld@git+https://github.com/lkirk/tskit-ld.git'
 
 FROM ghcr.io/lkirk/tskit-ld/ld-base as analysis
 
 COPY --from=build /wheels /wheels
-
 RUN pip install --no-cache --no-deps /wheels/* && rm -r /wheels
-
 WORKDIR /opt
 
 ENTRYPOINT ["htcluster-wrapper"]
