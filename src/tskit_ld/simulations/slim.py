@@ -2,6 +2,8 @@ import subprocess
 from pathlib import Path
 
 import structlog
+import tskit
+import tszip
 from htcluster.validator_base import BaseModel
 from htcluster.job_wrapper.job import job_wrapper
 from pydantic import field_validator
@@ -40,7 +42,6 @@ class SLiMJobArgs(BaseModel):
 @job_wrapper(SLiMJobArgs)
 def main(args: SLiMJobArgs) -> None:
     log = structlog.get_logger(module=__name__)
-    log.info("starting")
 
     params_file = Path("params.json")
     if params_file.exists():
@@ -48,8 +49,20 @@ def main(args: SLiMJobArgs) -> None:
 
     with open(params_file, "w") as fp:
         fp.write(args.params.model_dump_json())
+    log.info("wrote input params", file=params_file)
 
     log.info("running SLiM")
     subprocess.run(
         ["slim", "-d", "PARAM_FILE='params.json'", "/opt/main.slim"], check=True
     )
+
+    compressed_path = args.OUTPATH.with_suffix(f"{args.OUTPATH.suffix}.tsz")
+    log.info(
+        "SLiM has completed, compressing output tree",
+        tree_path=args.OUTPATH,
+        compressed_path=compressed_path,
+    )
+    ts = tskit.load(args.OUTPATH)
+    tszip.compress(ts, compressed_path)
+    log.info("compression complete, removing uncompressed tree")
+    compressed_path.unlink()
