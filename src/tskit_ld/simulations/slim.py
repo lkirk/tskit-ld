@@ -66,4 +66,4 @@ def main(args: SLiMJobArgs) -> None:
     ts = tskit.load(uncompressed_path)
     tszip.compress(ts, compressed_path)
     log.info("compression complete, removing uncompressed tree")
-    compressed_path.unlink()
+    uncompressed_path.unlink()
