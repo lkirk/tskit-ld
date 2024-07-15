@@ -49,7 +49,7 @@ def main(args: SLiMJobArgs) -> None:
 
     with open(params_file, "w") as fp:
         fp.write(args.params.model_dump_json())
-    log.info("wrote input params", file=params_file)
+    log.info("wrote input params", file=str(params_file))
 
     log.info("running SLiM")
     subprocess.run(
@@ -59,8 +59,8 @@ def main(args: SLiMJobArgs) -> None:
     compressed_path = args.OUTPATH.with_suffix(f"{args.OUTPATH.suffix}.tsz")
     log.info(
         "SLiM has completed, compressing output tree",
-        tree_path=args.OUTPATH,
-        compressed_path=compressed_path,
+        tree_path=str(args.OUTPATH),
+        compressed_path=str(compressed_path),
     )
     ts = tskit.load(args.OUTPATH)
     tszip.compress(ts, compressed_path)
