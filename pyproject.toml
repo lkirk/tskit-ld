@@ -1,10 +1,9 @@
 [project]
 name = "tskit-ld"
-version = "0.1"
-dynamic = ["dependencies"]
+dynamic = ["dependencies", "version"]
 
 [build-system]
-requires = ["pip==24.1.1", "setuptools==70.1.1"]
+requires = ["pip==24.1.1", "setuptools==70.1.1", "setuptools_scm==8.1.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.dynamic]
@@ -18,3 +17,5 @@ stubPath = "src/stubs"
 
 [tool.isort]
 profile = "black"
+
+[tool.setuptools_scm]
