@@ -4,8 +4,8 @@ from pathlib import Path
 import structlog
 import tskit
 import tszip
-from htcluster.validator_base import BaseModel
 from htcluster.job_wrapper.job import job_wrapper
+from htcluster.validator_base import BaseModel
 from pydantic import field_validator
 
 
@@ -56,13 +56,14 @@ def main(args: SLiMJobArgs) -> None:
         ["slim", "-d", "PARAM_FILE='params.json'", "/opt/main.slim"], check=True
     )
 
-    compressed_path = args.OUTPATH.with_suffix(f"{args.OUTPATH.suffix}.tsz")
+    uncompressed_path = args.params.OUTPATH
+    compressed_path = uncompressed_path.with_suffix(f"{uncompressed_path.suffix}.tsz")
     log.info(
         "SLiM has completed, compressing output tree",
-        tree_path=str(args.OUTPATH),
+        tree_path=str(uncompressed_path),
         compressed_path=str(compressed_path),
     )
-    ts = tskit.load(args.OUTPATH)
+    ts = tskit.load(uncompressed_path)
     tszip.compress(ts, compressed_path)
     log.info("compression complete, removing uncompressed tree")
     compressed_path.unlink()
