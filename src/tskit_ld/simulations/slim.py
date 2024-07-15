@@ -3,7 +3,7 @@ from pathlib import Path
 
 import structlog
 from htcluster.validator_base import BaseModel
-from job_wrapper.job import job_wrapper
+from htcluster.job_wrapper.job import job_wrapper
 from pydantic import field_validator
 
 
