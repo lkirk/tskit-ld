@@ -2,8 +2,9 @@ import subprocess
 from pathlib import Path
 
 import structlog
+from htcluster.validator_base import BaseModel
 from job_wrapper.job import job_wrapper
-from pydantic import BaseModel, field_validator
+from pydantic import field_validator
 
 
 class SlimParams(BaseModel):
@@ -13,6 +14,7 @@ class SlimParams(BaseModel):
     SM: float
     L: int
     W: float
+    H: float
     G: float
     MU: int
     R: float
