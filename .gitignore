@@ -1,4 +1,5 @@
 # python tmp files
+build/
 __pycache__/
 *.egg-info/
 *.egg
