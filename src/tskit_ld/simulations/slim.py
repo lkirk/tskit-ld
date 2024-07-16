@@ -1,12 +1,13 @@
 import subprocess
 from pathlib import Path
+from typing import Self
 
 import structlog
 import tskit
 import tszip
 from htcluster.job_wrapper.job import job_wrapper
 from htcluster.validator_base import BaseModel
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 
 
 class SlimParams(BaseModel):
@@ -24,19 +25,39 @@ class SlimParams(BaseModel):
     IND_RECORD_LIM: int
     IND_RECORD_LAG: int
     IND_RECORD_FREQ: float
-    OUTPATH: Path
+    OUTPATH: Path | None = None
 
     @field_validator("OUTPATH")
     @classmethod
-    def contains_units(cls, v: Path) -> Path:
-        assert not v.exists(), f"{v} already exists"
+    def out_path_exists(cls, v: Path | None) -> Path | None:
+        if v:
+            assert not v.exists(), f"{v} already exists"
         return v
 
 
 class SLiMJobArgs(BaseModel):
-    in_files: None
-    out_files: Path
+    in_files: Path
+    out_files: Path | None = None
     params: SlimParams
+
+    @field_validator("out_files")
+    @classmethod
+    def out_files_exists(cls, v: Path | None) -> Path | None:
+        if v:
+            assert not v.exists(), f"{v} already exists"
+        return v
+
+    @model_validator(mode="after")
+    def validate_params(self) -> Self:
+        if not (self.out_files or self.params.OUTPATH):
+            raise ValueError(
+                "the out path must be specified in params.OUTPATH "
+                "or in out_files, both cannot be None"
+            )
+        # Set this in params to be passed to SLiM
+        if not self.params.OUTPATH:
+            self.params.OUTPATH = self.out_files
+        return self
 
 
 @job_wrapper(SLiMJobArgs)
@@ -51,12 +72,14 @@ def main(args: SLiMJobArgs) -> None:
         fp.write(args.params.model_dump_json())
     log.info("wrote input params", file=str(params_file))
 
+    uncompressed_path = args.params.OUTPATH
+    assert uncompressed_path is not None  # mypy
+
     log.info("running SLiM")
     subprocess.run(
         ["slim", "-d", "PARAM_FILE='params.json'", "/opt/main.slim"], check=True
     )
 
-    uncompressed_path = args.params.OUTPATH
     compressed_path = uncompressed_path.with_suffix(f"{uncompressed_path.suffix}.tsz")
     log.info(
         "SLiM has completed, compressing output tree",
