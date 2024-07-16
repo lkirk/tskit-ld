@@ -1,6 +1,0 @@
-[tool.pyright]
-include = ["spatial-ld/analysis/spatial-positions"]
-stubPath = "spatial-ld/analysis/spatial-positions/stubs"
-
-[tool.isort]
-profile = "black"
