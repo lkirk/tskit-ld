@@ -36,7 +36,7 @@ class SlimParams(BaseModel):
 
 
 class SLiMJobArgs(BaseModel):
-    in_files: Path
+    in_files: None
     out_files: Path | None = None
     params: SlimParams
 
