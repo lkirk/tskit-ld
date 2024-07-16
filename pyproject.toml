@@ -6,6 +6,9 @@ dynamic = ["dependencies", "version"]
 requires = ["pip==24.1.1", "setuptools==70.1.1", "setuptools_scm==8.1.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.setuptools.dynamic]
 dependencies = {file = ["etc/requirements.txt"]}
 optional-dependencies.frozen = {file = ["docker/derived/requirements-frozen.txt"]}
@@ -13,10 +16,15 @@ optional-dependencies.frozen = {file = ["docker/derived/requirements-frozen.txt"
 [tool.pyright]
 venvPath = "."
 venv = "ve"
-stubPath = "src/stubs"
-include = "src"
+stubPath = "../stubs"
+include = ["src"]
 
 [tool.isort]
 profile = "black"
+src_paths = ["src"]
+virtual_env = "ve"
+
+[tool.ruff]
+src = ["src"]
 
 [tool.setuptools_scm]
