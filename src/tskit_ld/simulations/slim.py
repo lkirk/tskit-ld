@@ -12,20 +12,21 @@ from pydantic import field_validator, model_validator
 
 class SlimParams(BaseModel):
     K: int
-    SD: float
-    SI: float
-    SM: float
     L: int
     W: float
     H: float
     G: float
-    MU: int
     R: float
+    MU: int
+    SD: float
+    SM: float
+    SI: float
     SIM_END: float
     IND_RECORD_LIM: int
     IND_RECORD_LAG: int
     IND_RECORD_FREQ: float
     OUTPATH: Path | None = None
+    SEED: int
 
     @field_validator("OUTPATH")
     @classmethod
@@ -36,7 +37,7 @@ class SlimParams(BaseModel):
 
 
 class SLiMJobArgs(BaseModel):
-    in_files: None
+    in_files: None = None
     out_files: Path | None = None
     params: SlimParams
 
@@ -64,20 +65,14 @@ class SLiMJobArgs(BaseModel):
 def main(args: SLiMJobArgs) -> None:
     log = structlog.get_logger(module=__name__)
 
-    params_file = Path("params.json")
-    if params_file.exists():
-        raise Exception(f"{params_file} already exists")
-
-    with open(params_file, "w") as fp:
-        fp.write(args.params.model_dump_json())
-    log.info("wrote input params", file=str(params_file))
-
     uncompressed_path = args.params.OUTPATH
     assert uncompressed_path is not None  # mypy
 
     log.info("running SLiM")
+    # quote json for the command line (we're wrapping in double quotes)
+    param_json = args.params.model_dump_json().replace('"', r"\"")
     subprocess.run(
-        ["slim", "-d", "PARAM_FILE='params.json'", "/opt/main.slim"], check=True
+        ["slim", "-d", f"PARAM_JSON='{param_json}'", "/opt/main.slim"], check=True
     )
 
     compressed_path = uncompressed_path.with_suffix(f"{uncompressed_path.suffix}.tsz")

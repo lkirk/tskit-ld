@@ -8,9 +8,9 @@ function (void)tlog(string$ message, [*$ s = NULL]) {
 }
 
 function (object<Dictionary>$)setupParams(void) {
-    // Read params from a json file (these can be overwritten on the
+    // Read params from a json file or string (these can be overwritten on the
     // command line with -d arguments. We require that the json file exists
-    // unless you specify -d NO_PARAM_FILE=T
+    // unless you specify -d NO_PARAMS=T
     requiredParams = c(
         "K",               // carrying capacity
         "SD",              // sigma_D - dispersal distance
@@ -31,18 +31,29 @@ function (object<Dictionary>$)setupParams(void) {
     // params to be cast to integers
     intParams = c("G", "SIM_END", "IND_RECORD_LAG", "IND_RECORD_LIM", "IND_RECORD_FREQ");
 
-    paramsFileRequired = exists("NO_PARAM_FILE") ? !(NO_PARAM_FILE == T) else T;
+    paramsFileRequired = exists("NO_PARAMS") ? !(NO_PARAMS == T) else T;
     if (paramsFileRequired) {
-        if (!exists("PARAM_FILE")) {
-            stop(paste("You must define PARAM_FILE for this simulation",
-                       "(use -d 'PARAM_FILE=\"your_file\"') or you can",
-                       "turn off this check with -d NO_PARAM_FILE=T and specify",
-                       "all required parameters from the command line"));
+        if ((!exists("PARAM_FILE")) & (!exists("PARAM_JSON"))) {
+            stop(paste("You must define PARAM_FILE or PARAMS_JSON for this simulation.",
+                       "You can use (-d 'PARAM_FILE=\"your_file\"'), ",
+                       "(-d 'PARAM_JSON=\"{\"json\":\"string\"}\"') or you can",
+                       "turn off this check with -d NO_PARAMS=T and specify",
+                       "all required parameters from the command line.",
+                       "If specified on the command line, parameters will not be",
+                       "recorded in the tree sequence."));
         }
-        if (!fileExists(PARAM_FILE)) {
-            stop(paste("Param file does not exist:", PARAM_FILE));
+        if ((exists("PARAM_FILE")) & (exists("PARAM_JSON"))) {
+            stop(paste("'PARAM_FILE' and 'PARAM_JSON' are mutually exclusive"));
         }
-        params = Dictionary(readFile(PARAM_FILE));
+        if (exists("PARAM_FILE")) {
+            if (!fileExists(PARAM_FILE)) {
+                stop(paste("Param file does not exist:", PARAM_FILE));
+            }
+            params = Dictionary(readFile(PARAM_FILE));
+        }
+        if (exists("PARAM_JSON")) {
+            params = Dictionary(PARAM_JSON);
+        }
         for (k in params.allKeys) {
             // Ensure certain parameters are ints.
             if (any(k == intParams)) {
