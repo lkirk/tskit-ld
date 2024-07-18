@@ -1,28 +1,40 @@
 import concurrent.futures
+import numpy.typing as npt
+from collections.abc import Iterable
 from itertools import zip_longest
-from typing import Optional
+from typing import Any, Generator, Optional
 
+import demes
+import moments
 import numpy as np
 import tskit
 
 from .types import NPInt64Array
 
 
-def get_max_dist_slice(pos, max_dist):
+def midpoint(bins: npt.NDArray) -> npt.NDArray:
+    return (bins[1:] + bins[:-1]) / 2
+
+
+def simpson(edge: npt.NDArray, mid: npt.NDArray) -> npt.NDArray:
+    return (edge[:-1] + 4 * mid + edge[1:]) / 6
+
+
+def get_max_dist_slice(pos: list[int], max_dist: int) -> Generator[slice, None, None]:
     bounds = np.vstack([pos, pos + np.repeat(max_dist, len(pos))]).T
     for start, stop in np.searchsorted(pos, bounds):
         yield slice(start + 1, stop)
 
 
-def chunks(iterable, n, fillvalue=None):
+def chunks(iterable: Iterable, n: int) -> Generator[Any, None, None]:
     args = [iter(iterable)] * n
     i = 0
-    for chunk in zip_longest(*args, fillvalue=fillvalue):
+    for chunk in zip_longest(*args):
         yield i, tuple(filter(None, chunk))
         i += n
 
 
-def bincount_unique(x, weights):
+def bincount_unique(x: npt.NDArray, weights: npt.NDArray) -> npt.NDArray[np.int64]:
     # passes the following test...
     # bincount_unique(arr, np.ones_like(arr)) == np.unique(arr, return_counts=True)[1]
     # find breakpoints with closed invervals, starting with 0
@@ -39,7 +51,7 @@ def ld_decay(
     win_size: Optional[int] = None,
     bins: Optional[NPInt64Array] = None,
     **ld_kwargs,
-):
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.float64]]:
     sites = np.arange(ts.num_sites, dtype=np.int32)
     pos = ts.tables.sites.position
     if bins is None:
@@ -99,7 +111,7 @@ def ld_decay_two_way(
     win_size: Optional[int] = None,
     bins: Optional[NPInt64Array] = None,
     **ld_kwargs,
-):
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.float64]]:
     sites = np.arange(ts.num_sites, dtype=np.int32)
     pos = ts.tables.sites.position
     if bins is None:
@@ -142,3 +154,98 @@ def ld_decay_two_way(
         bin_count.append(bc)
     count = np.vstack(bin_count).sum(0)
     return bins, count, np.vstack(result).sum(0) / count
+
+
+def gather_moments_data_demog_2_pop(
+    rho: float,
+    theta: float,
+    bins: npt.NDArray,
+    demog: demes.demes.Graph,
+    sampling_time: int | float,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    edges_result = moments.Demes.LD(
+        demog,
+        sampled_demes=["A", "B"],
+        sample_times=[sampling_time, sampling_time],
+        rho=rho * bins,
+        theta=theta,
+    )
+    mids_result = moments.Demes.LD(
+        demog,
+        sampled_demes=["A", "B"],
+        sample_times=[sampling_time, sampling_time],
+        rho=rho * midpoint(bins),
+        theta=theta,
+    )
+    mids_names = mids_result.names()[0]
+    edges_names = edges_result.names()[0]
+
+    mids_ld_stats = np.vstack(mids_result[:-1])
+    mids_D2_cross = mids_ld_stats[:, mids_names.index("DD_0_1")]
+    mids_pi2_1 = mids_ld_stats[:, mids_names.index("pi2_0_0_0_0")]
+    mids_pi2_2 = mids_ld_stats[:, mids_names.index("pi2_1_1_1_1")]
+
+    edges_ld_stats = np.vstack(edges_result[:-1])
+    edges_D2_cross = edges_ld_stats[:, edges_names.index("DD_0_1")]
+    edges_pi2_1 = edges_ld_stats[:, edges_names.index("pi2_0_0_0_0")]
+    edges_pi2_2 = edges_ld_stats[:, edges_names.index("pi2_1_1_1_1")]
+
+    D2 = simpson(edges_D2_cross, mids_D2_cross)
+    pi2 = simpson(
+        np.sqrt(edges_pi2_1) * np.sqrt(edges_pi2_2),
+        np.sqrt(mids_pi2_1) * np.sqrt(mids_pi2_2),
+    )
+
+    return D2, pi2
+
+
+def gather_moments_data_demog_1_pop(
+    rho: float,
+    theta: float,
+    bins: npt.NDArray,
+    demog: demes.demes.Graph,
+    sampling_time: int | float,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    edges_result = moments.Demes.LD(
+        demog,
+        sampled_demes=["A"],
+        sample_times=[sampling_time],
+        rho=rho * bins,
+        theta=theta,
+    )
+    mids_result = moments.Demes.LD(
+        demog,
+        sampled_demes=["A"],
+        sample_times=[sampling_time],
+        rho=rho * midpoint(bins),
+        theta=theta,
+    )
+    mids_names = mids_result.names()[0]
+    edges_names = edges_result.names()[0]
+
+    mids_ld_stats = np.vstack(mids_result[:-1])
+    mids_D2 = mids_ld_stats[:, mids_names.index("DD_0_0")]
+    mids_pi2 = mids_ld_stats[:, mids_names.index("pi2_0_0_0_0")]
+    edges_ld_stats = np.vstack(edges_result[:-1])
+    edges_D2 = edges_ld_stats[:, edges_names.index("DD_0_0")]
+    edges_pi2 = edges_ld_stats[:, edges_names.index("pi2_0_0_0_0")]
+
+    D2 = simpson(edges_D2, mids_D2)
+    pi2 = simpson(edges_pi2, mids_pi2)
+
+    return D2, pi2
+
+
+def moments_sigma_d2(rho, theta, bins, demog, sampling_time, n_pop):
+    if n_pop == 1:
+        D2, pi2 = gather_moments_data_demog_1_pop(
+            rho, theta, bins, demog, sampling_time
+        )
+    elif n_pop == 2:
+        D2, pi2 = gather_moments_data_demog_2_pop(
+            rho, theta, bins, demog, sampling_time
+        )
+    else:
+        raise Exception
+    print("Got results for sampling time:", sampling_time)
+    return D2 / pi2
