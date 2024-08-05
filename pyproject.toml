@@ -11,12 +11,11 @@ where = ["src"]
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["etc/requirements.txt"]}
-optional-dependencies.frozen = {file = ["docker/derived/requirements-frozen.txt"]}
 
 [tool.pyright]
 venvPath = "."
 venv = "ve"
-stubPath = "../stubs"
+stubPath = "stubs"
 include = ["src"]
 
 [tool.isort]
