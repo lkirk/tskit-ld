@@ -31,7 +31,8 @@ python -m venv ve
 source ve/bin/activate
 
 if [[ -z "$UPDATE" ]]; then
-    pip install -e '.[frozen]'
+    pip install -r "$REPO_DIR/docker/derived/requirements-frozen.txt"
+    pip install -e .
 else
     pip install -e .
     pip freeze -r "$REPO_DIR/etc/requirements.txt" | grep -v 'git@github.com/lkirk/tskit-ld' > "$REPO_DIR/docker/derived/requirements-frozen.txt"
