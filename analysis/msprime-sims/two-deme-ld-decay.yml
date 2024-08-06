@@ -11,7 +11,7 @@ job:
   memory: 8GB
   disk: 1GB
   cpus: &cpus 16
-  entrypoint: analysis.test:main
+  entrypoint: tskit_ld.entrypoints.msprime_ld_decay:main
   docker_image: ghcr.io/lkirk/tskit-ld/spatial-analysis
   classads: "(has_avx2 == true)"
 params:
