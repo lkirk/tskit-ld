@@ -9,7 +9,10 @@ import moments
 import numpy as np
 import tskit
 
-from .types import NPInt64Array
+from .types import NPInt64Array, NPFloat64Array
+
+
+DecayReturnType = tuple[NPInt64Array, NPInt64Array, NPFloat64Array]
 
 
 def midpoint(bins: npt.NDArray) -> npt.NDArray:
@@ -49,9 +52,9 @@ def ld_decay(
     n_threads: int,
     max_dist: int,
     win_size: Optional[int] = None,
-    bins: Optional[NPInt64Array] = None,
+    bins: Optional[npt.NDArray] = None,
     **ld_kwargs,
-) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.float64]]:
+) -> DecayReturnType:
     sites = np.arange(ts.num_sites, dtype=np.int32)
     pos = ts.tables.sites.position
     if bins is None:
@@ -109,9 +112,9 @@ def ld_decay_two_way(
     n_threads: int,
     max_dist: int,
     win_size: Optional[int] = None,
-    bins: Optional[NPInt64Array] = None,
+    bins: Optional[npt.NDArray] = None,
     **ld_kwargs,
-) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.float64]]:
+) -> DecayReturnType:
     sites = np.arange(ts.num_sites, dtype=np.int32)
     pos = ts.tables.sites.position
     if bins is None:
@@ -160,19 +163,20 @@ def gather_moments_data_demog_2_pop(
     rho: float,
     theta: float,
     bins: npt.NDArray,
+    sampled_demes: list[str],
     demog: demes.demes.Graph,
-    sampling_time: int | float,
+    sampling_time: int,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     edges_result = moments.Demes.LD(
         demog,
-        sampled_demes=["A", "B"],
+        sampled_demes=sampled_demes,
         sample_times=[sampling_time, sampling_time],
         rho=rho * bins,
         theta=theta,
     )
     mids_result = moments.Demes.LD(
         demog,
-        sampled_demes=["A", "B"],
+        sampled_demes=sampled_demes,
         sample_times=[sampling_time, sampling_time],
         rho=rho * midpoint(bins),
         theta=theta,
@@ -203,19 +207,20 @@ def gather_moments_data_demog_1_pop(
     rho: float,
     theta: float,
     bins: npt.NDArray,
+    sampled_deme: str,
     demog: demes.demes.Graph,
-    sampling_time: int | float,
+    sampling_time: int,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     edges_result = moments.Demes.LD(
         demog,
-        sampled_demes=["A"],
+        sampled_demes=[sampled_deme],
         sample_times=[sampling_time],
         rho=rho * bins,
         theta=theta,
     )
     mids_result = moments.Demes.LD(
         demog,
-        sampled_demes=["A"],
+        sampled_demes=[sampled_deme],
         sample_times=[sampling_time],
         rho=rho * midpoint(bins),
         theta=theta,
@@ -236,14 +241,22 @@ def gather_moments_data_demog_1_pop(
     return D2, pi2
 
 
-def moments_sigma_d2(rho, theta, bins, demog, sampling_time, n_pop):
+def moments_sigma_d2(
+    rho: float,
+    theta: float,
+    bins: npt.NDArray,
+    sampled_demes: list[str],
+    demog: demes.demes.Graph,
+    sampling_time: int,
+    n_pop: int,
+) -> npt.NDArray[np.float64]:
     if n_pop == 1:
         D2, pi2 = gather_moments_data_demog_1_pop(
-            rho, theta, bins, demog, sampling_time
+            rho, theta, bins, sampled_demes[0], demog, sampling_time
         )
     elif n_pop == 2:
         D2, pi2 = gather_moments_data_demog_2_pop(
-            rho, theta, bins, demog, sampling_time
+            rho, theta, bins, sampled_demes, demog, sampling_time
         )
     else:
         raise Exception
