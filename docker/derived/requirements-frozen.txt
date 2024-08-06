@@ -15,7 +15,7 @@ polars==1.1.0
 pyarrow==16.1.0
 pyslim==1.0.4
 tszip==0.2.4
-htcluster @ git+https://github.com/lkirk/htcluster.git@50eb58c49593797cbf1879aa12cee03e30177748
+htcluster @ git+https://github.com/lkirk/htcluster.git@0714a954ca9430ed0a6971a587c0c40779b95f62
 tskit @ git+https://github.com/lkirk/tskit.git@64a5fc7c3496fef53ad1478622a9c1b0663c71a6#subdirectory=python
 ## The following requirements were added by pip freeze:
 annotated-types==0.7.0
