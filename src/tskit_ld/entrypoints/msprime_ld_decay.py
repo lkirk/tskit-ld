@@ -47,13 +47,12 @@ class MsprimeSimParams(BaseModel):
 
 
 class OneWayDecayParams(BaseModel):
-    # TODO: float time?
+    sample_time_indices: list[int]
     sample_groups: list[str]
     stats: list[str]
 
 
 class TwoWayDecayParams(BaseModel):
-    # TODO: float time?
     a_sample_groups: list[str]
     b_sample_groups: list[str]
     stats: list[str]
@@ -69,7 +68,8 @@ class DecayArgs(BaseModel):
 
 
 class DecayParams(BaseModel):
-    sample_times: dict[str, list[int]]
+    # TODO: float time?
+    sample_times: list[list[int]]
     args: DecayArgs
 
 
@@ -182,7 +182,7 @@ def run_msprime(params: MsprimeSimParams) -> list[tskit.TreeSequence]:
 def compute_decay_one_way(
     tss: list[tskit.TreeSequence],
     params: OneWayDecayParams,
-    sample_times: dict[str, list[int]],
+    sample_times: list[list[int]],
     bins: list[float],
     chunk_size: int,
     max_dist: int,
@@ -205,8 +205,8 @@ def compute_decay_one_way(
         pop_name_to_id = {p.metadata["name"]: p.id for p in ts.populations()}
         sample_sets = [
             (name, t, ts.samples(pop_name_to_id[name], time=t))
-            for name in params.sample_groups
-            for t in sample_times[name]
+            for name, idx in zip_equal(params.sample_groups, params.sample_time_indices)
+            for t in sample_times[idx]
         ]
         out = []
         for name, time, ss in sample_sets:
@@ -235,7 +235,7 @@ def compute_decay_one_way(
 def compute_decay_two_way(
     tss: list[tskit.TreeSequence],
     params: TwoWayDecayParams,
-    sample_times: dict[str, list[int]],
+    sample_times: list[list[int]],
     bins: list[float],
     chunk_size: int,
     max_dist: int,
@@ -255,19 +255,32 @@ def compute_decay_two_way(
 
     """
     for (rep, ts), stat in product(enumerate(tss), params.stats):
-        LOG.info("computing LD decay two way", rep=rep, stat=stat)
         pop_name_to_id = {p.metadata["name"]: p.id for p in ts.populations()}
-        a_sample_sets = [
-            (name, t, ts.samples(pop_name_to_id[name], time=t))
-            for name in params.a_sample_groups
-            for t in sample_times[name]
-        ]
-        b_sample_sets = [
-            (name, t, ts.samples(pop_name_to_id[name], time=t))
-            for name in params.b_sample_groups
-            for t in sample_times[name]
-        ]
-        # TODO: put this in input param validation
+
+        a_sample_sets = []
+        b_sample_sets = []
+        for a_group, b_group in zip(params.a_sample_groups, params.b_sample_groups):
+            for a_time, b_time in zip(*sample_times):
+                # We can't compute two_way unbiased stats on sample sets that aren't
+                # disjoint. We rely on the one_way stats for these results. Ideally,
+                # the params wouldn't give us these combinations, but I don't have
+                # time to rework those.
+                if (a_group == b_group) and (a_time == b_time):
+                    LOG.info(
+                        "skipping two_way group",
+                        a_group=a_group,
+                        a_time=a_time,
+                        b_group=b_group,
+                        b_time=b_time,
+                    )
+                    continue
+                a_sample_sets.append(
+                    (a_group, a_time, ts.samples(pop_name_to_id[a_group], time=a_time))
+                )
+                b_sample_sets.append(
+                    (b_group, b_time, ts.samples(pop_name_to_id[b_group], time=b_time))
+                )
+
         assert len(a_sample_sets) == len(
             b_sample_sets
         ), "a_sample_sets and b_sample_sets must be of equal length"

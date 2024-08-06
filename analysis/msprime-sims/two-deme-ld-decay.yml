@@ -54,11 +54,9 @@ params:
     decay:
       !product
       sample_times:
-        !zip_named
-        args:
-          - !split {arr: !repeat {rep: 0, n: 20}, n: 20}
-          - !split {arr: !range [0, 4000, 200], n: 20}
-        names: ["A", "B"]
+        !zip
+        - !split {arr: !repeat {rep: 0, n: 20}, n: 20}
+        - !split {arr: !range [0, 4000, 200], n: 20}
       args:
         !repeat
         rep:
@@ -67,10 +65,11 @@ params:
           chunk_size: 1
           max_dist: 1_000_000  # bp
           one_way:
-            sample_groups: ["B"]
+            sample_time_indices: [1]
+            sample_groups: ["A"]
             stats: ["D2_unbiased", "pi2_unbiased", "r2", "r"]
           two_way:
             a_sample_groups: ["A", "A"]
             b_sample_groups: ["A", "B"]
-            stats: ["D2_unbiased", "pi2_unbiased", "r2"]
+            stats: ["D2_unbiased", "pi2_unbiased", "r2", "r"]
         n: 75
