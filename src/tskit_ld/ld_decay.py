@@ -11,8 +11,7 @@ import tskit
 
 from .types import NPInt64Array, NPFloat64Array
 
-
-DecayReturnType = tuple[NPInt64Array, NPInt64Array, NPFloat64Array]
+type DecayReturnType = tuple[NPInt64Array, NPInt64Array, NPFloat64Array]
 
 
 def midpoint(bins: npt.NDArray) -> npt.NDArray:
