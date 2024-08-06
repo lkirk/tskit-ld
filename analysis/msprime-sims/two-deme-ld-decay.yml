@@ -10,21 +10,27 @@ job:
   name: msprime-ld-decay
   memory: 8GB
   disk: 1GB
-  cpus: &cpus 32
+  cpus: &cpus 16
   entrypoint: analysis.test:main
   docker_image: ghcr.io/lkirk/tskit-ld/spatial-analysis
   classads: "(has_avx2 == true)"
 params:
   out_files: !file_range
     fmt: decay_{}.parquet
-    num: &n_jobs 60
+    num: &n_jobs 1500
   params:
-    random_seed: !randint_32 {seed: 23, size: *n_jobs}
+    # random_seed: !flatten [!repeat {rep: !randint_32 {seed: 23, size: 60}, n: 20}]
     sim:
       !product
       migrations: [{demes: [A, B]}]
-      migration_rate: !flatten [!repeat {rep: !logspace [-1, -4, 4], n: 15}]
-      sample_times: [&sample_times !range [0, 4000, 200]]
+      sample_times: !repeat {rep: !range [0, 4000, 200], n: 20}
+      # a little hacky but works, each mig rate gets a seed, then product with the split sample times
+      migseed:
+        !zip_named
+        args:
+          - !randint_32 {seed: 23, size: 75}
+          - !flatten [!repeat {rep: !logspace [-1, -5, 5], n: 15}]
+        names: ["random_seed", "migration_rate"]
       sequence_length: [1e8]
       mutation_rate: [1e-8]
       recombination_rate: [1e-8]
@@ -46,20 +52,25 @@ params:
 
     # The decay options stay the same, only simulation parameters vary
     decay:
-      !repeat
-      rep:
-        n_cpus: *cpus
-        bins: !logspace [.5, 6, 41]  # bp
-        chunk_size: 1
-        max_dist: 1_000_000  # bp
-        one_way:
-          sample_times: *sample_times
-          sample_groups: ["A"]
-          stats: ["D2_unbiased", "pi2_unbiased", "r2", "r"]
-        two_way:
-          a_sample_times: !repeat {rep: 0, n: 20}
-          b_sample_times: *sample_times
-          a_sample_groups: ["A", "A"]
-          b_sample_groups: ["A", "B"]
-          stats: ["D2_unbiased", "pi2_unbiased", "r2"]
-      n: *n_jobs
+      !product
+      sample_times:
+        !zip_named
+        args:
+          - !split {arr: !repeat {rep: 0, n: 20}, n: 20}
+          - !split {arr: !range [0, 4000, 200], n: 20}
+        names: ["A", "B"]
+      args:
+        !repeat
+        rep:
+          n_cpus: *cpus
+          bins: !logspace [.5, 6, 41]  # bp
+          chunk_size: 1
+          max_dist: 1_000_000  # bp
+          one_way:
+            sample_groups: ["B"]
+            stats: ["D2_unbiased", "pi2_unbiased", "r2", "r"]
+          two_way:
+            a_sample_groups: ["A", "A"]
+            b_sample_groups: ["A", "B"]
+            stats: ["D2_unbiased", "pi2_unbiased", "r2"]
+        n: 75

@@ -14,7 +14,6 @@ from more_itertools import zip_equal
 
 from tskit_ld.io import write_parquet
 from tskit_ld.ld_decay import DecayReturnType, ld_decay, ld_decay_two_way
-from tskit_ld.types import NPFloat64Array, NPInt64Array
 
 log_config()
 LOG = structlog.get_logger()
@@ -29,9 +28,15 @@ type TwoWayDecayJobReturnType = Generator[
 ]
 
 
-class MsprimeSimParams(BaseModel):
-    migrations: dict[str, list[str]]
+# a bit hacky, but works
+class MigSeed(BaseModel):
     migration_rate: float
+    random_seed: int
+
+
+class MsprimeSimParams(BaseModel):
+    migseed: MigSeed
+    migrations: dict[str, list[str]]
     sample_times: list[float]
     sequence_length: float
     mutation_rate: float
@@ -43,31 +48,32 @@ class MsprimeSimParams(BaseModel):
 
 class OneWayDecayParams(BaseModel):
     # TODO: float time?
-    sample_times: list[int]
     sample_groups: list[str]
     stats: list[str]
 
 
 class TwoWayDecayParams(BaseModel):
     # TODO: float time?
-    a_sample_times: list[int]
-    b_sample_times: list[int]
     a_sample_groups: list[str]
     b_sample_groups: list[str]
     stats: list[str]
 
 
-class DecayParams(BaseModel):
+class DecayArgs(BaseModel):
     n_cpus: int
-    bins: list[float]
     chunk_size: int
+    bins: list[float]
     max_dist: int  # TODO: could be float too
     one_way: OneWayDecayParams
     two_way: TwoWayDecayParams
 
 
+class DecayParams(BaseModel):
+    sample_times: dict[str, list[int]]
+    args: DecayArgs
+
+
 class MsprimeLDDecayParams(BaseModel):
-    random_seed: int
     sim: MsprimeSimParams
     decay: DecayParams
 
@@ -83,25 +89,27 @@ def main(args: JobParams) -> None:
     params = args.params
 
     LOG.info("running msprime")
-    tss = run_msprime(params.sim, params.random_seed)
+    tss = run_msprime(params.sim)
     decay, meta = one_way_result_to_df(
         compute_decay_one_way(
             tss,
-            params.decay.one_way,
-            params.decay.bins,
-            params.decay.chunk_size,
-            params.decay.max_dist,
-            params.decay.n_cpus,
+            params.decay.args.one_way,
+            params.decay.sample_times,
+            params.decay.args.bins,
+            params.decay.args.chunk_size,
+            params.decay.args.max_dist,
+            params.decay.args.n_cpus,
         )
     )
     decay_two_way, meta_two_way = two_way_result_to_df(
         compute_decay_two_way(
             tss,
-            params.decay.two_way,
-            params.decay.bins,
-            params.decay.chunk_size,
-            params.decay.max_dist,
-            params.decay.n_cpus,
+            params.decay.args.two_way,
+            params.decay.sample_times,
+            params.decay.args.bins,
+            params.decay.args.chunk_size,
+            params.decay.args.max_dist,
+            params.decay.args.n_cpus,
         )
     )
     result = pl.concat(
@@ -133,19 +141,19 @@ def preprocess_demography(params: MsprimeSimParams) -> demes.Graph:
     """
     demography = params.demography
     demography.update(
-        {"migrations": [{**params.migrations, **{"rate": params.migration_rate}}]}
+        {
+            "migrations": [
+                {**params.migrations, **{"rate": params.migseed.migration_rate}}
+            ]
+        }
     )
     return demes.Graph.fromdict(demography)
 
 
-def run_msprime(
-    params: MsprimeSimParams,
-    random_seed: int,
-) -> list[tskit.TreeSequence]:
+def run_msprime(params: MsprimeSimParams) -> list[tskit.TreeSequence]:
     """Run msprime with provided parameters. Will compute multiple reps if specified
 
     :param params: Parameters for ancestry and mutation simulations
-    :param random_seed: Random seed for both ancestry and mutation sims
     :returns: List of tree sequences with mutations
 
     """
@@ -160,11 +168,13 @@ def run_msprime(
         num_replicates=params.n_reps,
         sequence_length=params.sequence_length,
         recombination_rate=params.recombination_rate,
-        random_seed=random_seed,
+        random_seed=params.migseed.random_seed,
     )
     # TODO: we reuse the seed for each rep here.
     return [
-        msprime.sim_mutations(ts, rate=params.mutation_rate, random_seed=random_seed)
+        msprime.sim_mutations(
+            ts, rate=params.mutation_rate, random_seed=params.migseed.random_seed
+        )
         for ts in tss
     ]
 
@@ -172,6 +182,7 @@ def run_msprime(
 def compute_decay_one_way(
     tss: list[tskit.TreeSequence],
     params: OneWayDecayParams,
+    sample_times: dict[str, list[int]],
     bins: list[float],
     chunk_size: int,
     max_dist: int,
@@ -194,7 +205,8 @@ def compute_decay_one_way(
         pop_name_to_id = {p.metadata["name"]: p.id for p in ts.populations()}
         sample_sets = [
             (name, t, ts.samples(pop_name_to_id[name], time=t))
-            for name, t in product(params.sample_groups, params.sample_times)
+            for name in params.sample_groups
+            for t in sample_times[name]
         ]
         out = []
         for name, time, ss in sample_sets:
@@ -223,6 +235,7 @@ def compute_decay_one_way(
 def compute_decay_two_way(
     tss: list[tskit.TreeSequence],
     params: TwoWayDecayParams,
+    sample_times: dict[str, list[int]],
     bins: list[float],
     chunk_size: int,
     max_dist: int,
@@ -246,11 +259,13 @@ def compute_decay_two_way(
         pop_name_to_id = {p.metadata["name"]: p.id for p in ts.populations()}
         a_sample_sets = [
             (name, t, ts.samples(pop_name_to_id[name], time=t))
-            for name, t in product(params.a_sample_groups, params.a_sample_times)
+            for name in params.a_sample_groups
+            for t in sample_times[name]
         ]
         b_sample_sets = [
             (name, t, ts.samples(pop_name_to_id[name], time=t))
-            for name, t in product(params.b_sample_groups, params.b_sample_times)
+            for name in params.b_sample_groups
+            for t in sample_times[name]
         ]
         # TODO: put this in input param validation
         assert len(a_sample_sets) == len(
