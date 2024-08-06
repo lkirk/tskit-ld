@@ -1,7 +1,7 @@
 import json
 from itertools import product
 from pathlib import Path
-from typing import Generator, TypeAlias
+from typing import Generator
 
 import demes
 import msprime
@@ -14,15 +14,16 @@ from more_itertools import zip_equal
 
 from tskit_ld.io import write_parquet
 from tskit_ld.ld_decay import DecayReturnType, ld_decay, ld_decay_two_way
+from tskit_ld.types import NPFloat64Array, NPInt64Array
 
 log_config()
 LOG = structlog.get_logger()
 
-OneWayDecayJobReturnType: TypeAlias = Generator[
+type OneWayDecayJobReturnType = Generator[
     # rep, stat, samp, time, decay
     tuple[int, list[tuple[str, str, int, DecayReturnType]]], None, None
 ]
-TwoWayDecayJobReturnType: TypeAlias = Generator[
+type TwoWayDecayJobReturnType = Generator[
     # rep, stat, samp_a, samp_b, time_a, time_b, decay
     tuple[int, list[tuple[str, str, str, int, int, DecayReturnType]]], None, None
 ]

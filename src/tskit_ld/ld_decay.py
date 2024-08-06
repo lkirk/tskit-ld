@@ -2,7 +2,7 @@ import concurrent.futures
 import numpy.typing as npt
 from collections.abc import Iterable
 from itertools import zip_longest
-from typing import Any, Generator, Optional, TypeAlias
+from typing import Any, Generator, Optional
 
 # import demes
 # import moments
@@ -12,7 +12,7 @@ import tskit
 from .types import NPInt64Array, NPFloat64Array
 
 
-DecayReturnType: TypeAlias = tuple[NPInt64Array, NPInt64Array, NPFloat64Array]
+DecayReturnType = tuple[NPInt64Array, NPInt64Array, NPFloat64Array]
 
 
 def midpoint(bins: npt.NDArray) -> npt.NDArray:
