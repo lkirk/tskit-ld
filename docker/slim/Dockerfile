@@ -1,5 +1,5 @@
 FROM ghcr.io/lkirk/containers/tools/slim:4.2.2 AS slim
-FROM python:3.11-slim-bullseye as build
+FROM python:3.12-slim-bookworm as build
 
 RUN \
 	set -ex; \
@@ -13,7 +13,7 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels \
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels \
 	'tskit-ld@git+https://github.com/lkirk/tskit-ld.git'
 
-FROM python:3.11-slim-bullseye as slim-spatial
+FROM python:3.12-slim-bookworm as slim-spatial
 
 COPY --from=slim /usr/local/bin /usr/local/bin
 COPY --from=build /wheels /wheels

@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bullseye as build
+FROM python:3.12-slim-bookworm as build
 
 RUN \
 	set -ex; \
@@ -13,7 +13,7 @@ RUN \
 	'tskit@git+https://github.com/lkirk/tskit.git@two-locus-staging#egg=tskit&subdirectory=python'
 
 
-FROM python:3.11-slim-bullseye as base
+FROM python:3.12-slim-bookworm as base
 
 COPY --from=build /wheels /wheels
 
