@@ -99,11 +99,22 @@ def read_metadata_df(in_path: Path) -> pl.DataFrame:
     return meta
 
 
+def read_metadata_dict(in_path: Path) -> dict[str, str]:
+    meta = pq.read_metadata(in_path).metadata
+    del meta[b"ARROW:schema"]
+    return {k.decode("utf-8"): v.decode("utf-8") for k, v in meta.items()}
+
+
 def read_parquet_file(
     in_path: Path,
     collect: bool = False,
     metadata: bool = False,
-) -> tuple[pl.DataFrame, pl.LazyFrame | pl.DataFrame] | pl.LazyFrame | pl.DataFrame:
+    meta_is_df: bool = True,
+) -> (
+    tuple[pl.DataFrame | dict[str, str], pl.LazyFrame | pl.DataFrame]
+    | pl.LazyFrame
+    | pl.DataFrame
+):
     """
     Read parquet file and associated metadata. We have to work around the
     fact that serialization into parquet format converts our run_id to a
@@ -115,6 +126,9 @@ def read_parquet_file(
         data = data.collect()
     if metadata is False:
         return data
+    if meta_is_df is False:
+        meta = read_metadata_dict(in_path)
+        return meta, data
     meta = read_metadata_df(in_path)
     if not collect:
         # hack for now
