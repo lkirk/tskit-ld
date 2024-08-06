@@ -1,0 +1,62 @@
+# In this simulation study, we're testing the behavior of LD between two
+# isolated demes with varying migration rates to understand the impact of
+# migration on LD over time. We will be sampling individuals every 200
+# generations and computing LD decay for r^2 and sigma_D^2.
+
+job:
+  name: msprime-ld-decay
+  memory: 8GB
+  disk: 1GB
+  cpus: &cpus 16
+  entrypoint: analysis.test:main
+  docker_image: ghcr.io/lkirk/tskit-ld/spatial-analysis
+  classads: "(has_avx2 == true)"
+params:
+  out_files: !file_range
+    fmt: decay_{}.parquet
+    num: &n_jobs 60
+  params:
+    random_seed: !randint_32 {seed: 23, size: *n_jobs}
+    sim:
+      !product
+      migrations: [{demes: [A, B]}]
+      migration_rate: !flatten [!repeat {rep: !logspace [-1, -4, 4], n: 15}]
+      sample_times: [&sample_times !range [0, 4000, 200]]
+      sequence_length: [1e8]
+      mutation_rate: [1e-8]
+      recombination_rate: [1e-8]
+      sample_size: [40]
+      n_reps: [1]
+      demography:
+        - time_units: generations
+          demes:
+            - name: A
+              start_time: .inf
+              epochs:
+                - start_size: 2000
+                  end_time: 0
+            - name: B
+              start_time: .inf
+              epochs:
+                - start_size: 2000
+                  end_time: 0 
+
+    # The decay options stay the same, only simulation parameters vary
+    decay:
+      !repeat
+      rep:
+        n_cpus: *cpus
+        bins: !logspace [.5, 6, 41]  # bp
+        chunk_size: 1
+        max_dist: 1_000_000  # bp
+        one_way:
+          sample_times: *sample_times
+          sample_groups: ["A"]
+          stats: ["D2_unbiased", "pi2_unbiased", "r2", "r"]
+        two_way:
+          a_sample_times: !repeat {rep: 0, n: 20}
+          b_sample_times: *sample_times
+          a_sample_groups: ["A", "A"]
+          b_sample_groups: ["A", "B"]
+          stats: ["D2_unbiased", "pi2_unbiased", "r2"]
+      n: *n_jobs
