@@ -3,11 +3,14 @@
 # migration on LD over time. We will be sampling individuals every 200
 # generations and computing LD decay for r^2 and sigma_D^2.
 
+# adapted from first attempt at
+# https://github.com/lkirk/tskit-ld/blob/4d4ed3/spatial-ld/analysis/docker/entrypoint
+
 job:
   name: msprime-ld-decay
   memory: 8GB
   disk: 1GB
-  cpus: &cpus 16
+  cpus: &cpus 32
   entrypoint: analysis.test:main
   docker_image: ghcr.io/lkirk/tskit-ld/spatial-analysis
   classads: "(has_avx2 == true)"
