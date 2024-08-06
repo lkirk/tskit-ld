@@ -15,5 +15,5 @@ polars
 pyarrow
 pyslim
 tszip
-htcluster@git+https://github.com/lkirk/htcluster.git#egg=htcluster.[job_submit]
-tskit@git+https://github.com/lkirk/tskit.git@two-locus-staging#egg=tskit&subdirectory=python
+htcluster[job_submit]@git+https://github.com/lkirk/htcluster.git
+tskit@git+https://github.com/lkirk/tskit.git@two-locus-staging#subdirectory=python
