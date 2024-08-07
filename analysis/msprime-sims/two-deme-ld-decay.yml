@@ -71,5 +71,5 @@ params:
           two_way:
             a_sample_groups: ["A", "A"]
             b_sample_groups: ["A", "B"]
-            stats: ["D2_unbiased", "pi2_unbiased", "r2", "r"]
+            stats: ["D2_unbiased", "pi2_unbiased", "r2"]
         n: 75
