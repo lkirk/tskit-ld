@@ -2,10 +2,10 @@ FROM ghcr.io/lkirk/containers/tools/slim:4.2.2 AS slim
 FROM python:3.12-slim-bookworm as build
 
 RUN \
-	set -ex; \
-	apt-get update; \
-	apt-get install -y git; \
-	rm -rf /var/lib/apt/lists/*
+    set -ex; \
+    apt-get update; \
+    apt-get install -y git; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN pip wheel --no-cache-dir --wheel-dir /wheels \
     tskit tszip \
