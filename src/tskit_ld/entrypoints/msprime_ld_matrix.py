@@ -15,9 +15,9 @@ LOG = structlog.get_logger()
 
 
 class LDMatrixParams(BaseModel):
-    sample_sets: list[list[int]] | None
-    sites: list[list[int]] | None
-    positions: list[list[float | int]] | None
+    sample_sets: list[list[int]] | None = None
+    sites: list[list[int]] | None = None
+    positions: list[list[float | int]] | None = None
     stat: list[str] | str
     mode: list[str] | str
 
