@@ -8,10 +8,8 @@ RUN \
 	rm -rf /var/lib/apt/lists/*
 
 RUN pip wheel --no-cache-dir --wheel-dir /wheels \
-	tszip \
-	'htcluster@git+https://github.com/lkirk/htcluster.git'
-RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels \
-	'tskit-ld@git+https://github.com/lkirk/tskit-ld.git'
+    tskit tszip \
+    'htcluster@git+https://github.com/lkirk/htcluster.git'
 
 FROM python:3.12-slim-bookworm as slim-spatial
 
