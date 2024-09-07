@@ -3,89 +3,15 @@ name: Build and Publish Docker Image
 on: push
 
 jobs:
-  build-base-container:
-    runs-on: ubuntu-latest
-    permissions:  # Sets the permissions granted to the `GITHUB_TOKEN`
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata for Docker
-        id: metadata  # store tags/labels in this workflow id
-        uses: docker/metadata-action@v4
-        with:
-          images: ghcr.io/${{ github.repository }}/ld-base
-          tags: |
-            # set latest tag for default branch
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push ld-base
-        uses: docker/build-push-action@v4
-        with:
-          context: docker/ld-base
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
-
-  build-derived-containers:
-    runs-on: ubuntu-latest
-    needs: build-base-container
-    strategy:
-      matrix:
-        container:
-          - name: analysis
-            file: Dockerfile-analysis
-
-    permissions:  # Sets the permissions granted to the `GITHUB_TOKEN`
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata for Docker
-        id: metadata  # store tags/labels in this workflow id
-        uses: docker/metadata-action@v4
-        with:
-          images: ghcr.io/${{ github.repository }}/${{ matrix.container.name }}
-          tags: |
-            # set latest tag for default branch
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push ${{ matrix.container.name }}
-        uses: docker/build-push-action@v4
-        with:
-          context: docker/derived
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
-          file: docker/derived/${{ matrix.container.file }}
-
-  build-standalone-containers:
+  build-containers:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         container:
           - name: spatial-ld-slim
             context: docker/slim
+          - name: analysis
+            context: docker/analysis
 
     permissions:  # Sets the permissions granted to the `GITHUB_TOKEN`
       contents: read

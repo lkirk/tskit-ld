@@ -1,24 +1,21 @@
-FROM ghcr.io/lkirk/tskit-ld/ld-base as build
+FROM python:3.12-slim-bookworm as build-wheels
 
 RUN \
 	set -ex; \
 	apt-get update; \
-	apt-get install -y git; \
+	apt-get install -y git gcc make; \
 	rm -rf /var/lib/apt/lists/*
 
 ADD requirements-frozen.txt .
-# we've already installed tskit in the base container
-RUN grep -v tskit requirements-frozen.txt > requirements-frozen-no-tskit.txt
-RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels \
-	-r requirements-frozen-no-tskit.txt
-# pip grabs the requirements txt from the repo, so we edit above
+RUN pip install -U 'pip==24.1.1' 'setuptools==70.1.1'
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels -r requirements-frozen.txt
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels \
 	'tskit-ld@git+https://github.com/lkirk/tskit-ld.git'
 
-FROM ghcr.io/lkirk/tskit-ld/ld-base as analysis
+FROM python:3.12-slim-bookworm as analysis
 
-COPY --from=build /wheels /wheels
-RUN pip install --ignore-installed --no-cache --no-deps /wheels/* && rm -r /wheels
-WORKDIR /opt
+COPY --from=build-wheels /wheels /wheels
+RUN pip install --no-cache-dir --no-deps /wheels/* && rm -r /wheels
+WORKDIR /analysis
 
 ENTRYPOINT ["htcluster-wrapper"]
