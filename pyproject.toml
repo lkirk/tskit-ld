@@ -17,6 +17,7 @@ venvPath = "."
 venv = "ve"
 stubPath = "stubs"
 include = ["src"]
+# typeCheckingMode = "strict"
 
 [tool.isort]
 profile = "black"
