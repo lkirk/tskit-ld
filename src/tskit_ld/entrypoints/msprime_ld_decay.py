@@ -150,6 +150,7 @@ def preprocess_demography(params: MsprimeSimParams) -> demes.Graph:
     return demes.Graph.fromdict(demography)
 
 
+# TODO: use .common.msprime.run_msprime
 def run_msprime(params: MsprimeSimParams) -> list[tskit.TreeSequence]:
     """Run msprime with provided parameters. Will compute multiple reps if specified
 
