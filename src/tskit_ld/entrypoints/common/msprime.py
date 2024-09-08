@@ -1,3 +1,5 @@
+import logging
+import sys
 from collections.abc import Iterator
 from typing import Self
 
@@ -20,6 +22,12 @@ type OptionalNumber = float | int | None
 
 
 # TODO: what about multiple ancestry seeds?
+# prints simulation logging, doesn't match the rest of the logs, but fine for now
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(message)s",
+    stream=sys.stdout,
+    level=logging.INFO,
+)
 
 
 def validate_demes(val):
@@ -136,7 +144,9 @@ def sim_ancestry(params: AncestryParams) -> Iterator[tskit.TreeSequence]:
     )
 
 
-def run_msprime(params: SimulationParams) -> Iterator[tuple[int, tskit.TreeSequence]]:
+def run_msprime(
+    params: SimulationParams,
+) -> Iterator[tuple[int, int, tskit.TreeSequence]]:
     mut_params = params.mutation_params
     anc_params = params.ancestry_params
     tss = sim_ancestry(anc_params)
@@ -149,9 +159,10 @@ def run_msprime(params: SimulationParams) -> Iterator[tuple[int, tskit.TreeSeque
         else:
             rep_seeds = [[s] for s in mut_params.random_seeds]
         for i, (ts, seeds) in enumerate(zip_equal(tss, rep_seeds)):
-            for seed in seeds:
+            for j, seed in enumerate(seeds):
                 yield (
                     i,
+                    j,
                     msprime.sim_mutations(
                         ts,
                         rate=mut_params.rate,
@@ -165,4 +176,4 @@ def run_msprime(params: SimulationParams) -> Iterator[tuple[int, tskit.TreeSeque
                     ),
                 )
     else:
-        return enumerate(tss)
+        return ((i, None, ts) for i, ts in enumerate(tss))
