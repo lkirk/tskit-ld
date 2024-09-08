@@ -3,6 +3,7 @@ from collections.abc import Iterator
 from itertools import groupby
 from pathlib import Path
 
+import numcodecs
 import numpy as np
 import numpy.typing as npt
 import pydantic
@@ -15,6 +16,9 @@ from .common.msprime import SimulationParams, run_msprime
 
 log_config()
 LOG = structlog.get_logger()
+
+COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=9, shuffle=numcodecs.Blosc.SHUFFLE)
+DS_KW = {"chunks": True, "compressor": COMPRESSOR, "cache_metadata": False}
 
 
 class LDMatrixParams(BaseModel):
@@ -116,34 +120,17 @@ def add_sim_metadata(g: zarr.Group, ts: tskit.TreeSequence) -> None:
     )
 
 
-def compute_ld(
-    group: Iterator[tuple[int, int, tskit.TreeSequence]],
-    params: LDMatrixParams,
-    root: zarr.Group,
-    modes: set[str],
-) -> None:
-    compute_branch = "branch" in modes
-    for anc_rep, mut_rep, ts in group:
-        rep_group = root.create_group((anc_rep, mut_rep))
-        add_sim_metadata(rep_group, ts)
-        if compute_branch:
-            g = rep_group.create_group("branch")
-            for stat, ld in compute_ld_matrix(ts, params, "branch"):
-                g.create_dataset(stat, shape=ld.shape, dtype=ld.dtype, chunks=True)
-            compute_branch = False
-        if "site" in modes:
-            g = rep_group.create_group("site")
-            for stat, ld in compute_ld_matrix(ts, params, "site"):
-                g.create_dataset(stat, shape=ld.shape, dtype=ld.dtype, chunks=True)
-
-
 @job_wrapper(JobParams)
 def main(args: JobParams) -> None:
     params = args.params
     n_anc_reps, n_mut_reps = get_n_reps(params.sim)
     n_reps = n_anc_reps * n_mut_reps
     LOG.info(
-        "Starting", n_anc_reps=n_anc_reps, n_mut_reps=n_mut_reps, n_tot_reps=n_reps
+        "Starting",
+        n_anc_reps=n_anc_reps,
+        n_mut_reps=n_mut_reps,
+        n_tot_reps=n_reps,
+        stats=params.ld_matrix.stat,
     )
     match params.ld_matrix.mode:
         case str():
@@ -151,13 +138,38 @@ def main(args: JobParams) -> None:
         case list():
             modes = set(params.ld_matrix.mode)
 
+    rep = 1
     with zarr.ZipStore(args.out_files, mode="w") as store:
         root = zarr.group(store=store)
         add_job_metadata(root, params)
 
-        anc_sim_groups = groupby(run_msprime(params.sim), key=lambda g: g[0])
-        for rep, (_, group) in enumerate(anc_sim_groups, 1):
-            LOG.info("Computing LD", rep=f"{rep}/{n_reps}", stats=params.ld_matrix.stat)
-            compute_ld(group, params.ld_matrix, root, modes)
+        for _, group in groupby(run_msprime(params.sim), key=lambda g: g[0]):
+            compute_branch = "branch" in modes
+            for anc_rep, mut_rep, ts in group:
+                LOG.info("Computing LD", rep=f"{rep}/{n_reps}")
+                rep_group = root.create_group((anc_rep, mut_rep))
+                add_sim_metadata(rep_group, ts)
+                if compute_branch:
+                    g = rep_group.create_group("branch")
+                    for stat, ld in compute_ld_matrix(ts, params.ld_matrix, "branch"):
+                        g.create_dataset(
+                            stat, data=ld, shape=ld.shape, dtype=ld.dtype, **DS_KW
+                        )
+                    bp = ts.breakpoints(as_array=True)
+                    g.create_dataset(
+                        "breakpoints", data=bp, shape=bp.shape, dtype=bp.dtype, **DS_KW
+                    )
+                    compute_branch = False
+                if "site" in modes:
+                    g = rep_group.create_group("site")
+                    for stat, ld in compute_ld_matrix(ts, params.ld_matrix, "site"):
+                        g.create_dataset(
+                            stat, data=ld, shape=ld.shape, dtype=ld.dtype, **DS_KW
+                        )
+                    pos = ts.sites_position
+                    g.create_dataset(
+                        "sites_pos", data=pos, shape=pos.shape, dtype=pos.dtype, **DS_KW
+                    )
+                rep += 1
 
     LOG.info("wrote result", file=args.out_files)
