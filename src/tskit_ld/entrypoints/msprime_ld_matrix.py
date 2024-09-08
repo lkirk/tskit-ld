@@ -152,9 +152,11 @@ def main(args: JobParams) -> None:
                 if compute_branch:
                     g = rep_group.create_group("branch")
                     for stat, ld in compute_ld_matrix(ts, params.ld_matrix, "branch"):
+                        LOG.info("writing matrix")
                         g.create_dataset(
                             stat, data=ld, shape=ld.shape, dtype=ld.dtype, **DS_KW
                         )
+                    LOG.info("writing breakpoints")
                     bp = ts.breakpoints(as_array=True)
                     g.create_dataset(
                         "breakpoints", data=bp, shape=bp.shape, dtype=bp.dtype, **DS_KW
@@ -163,9 +165,11 @@ def main(args: JobParams) -> None:
                 if "site" in modes:
                     g = rep_group.create_group("site")
                     for stat, ld in compute_ld_matrix(ts, params.ld_matrix, "site"):
+                        LOG.info("writing matrix")
                         g.create_dataset(
                             stat, data=ld, shape=ld.shape, dtype=ld.dtype, **DS_KW
                         )
+                    LOG.info("writing positions")
                     pos = ts.sites_position
                     g.create_dataset(
                         "sites_pos", data=pos, shape=pos.shape, dtype=pos.dtype, **DS_KW
