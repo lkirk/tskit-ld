@@ -18,7 +18,7 @@ from .common.msprime import SimulationParams, run_msprime
 log_config()
 LOG = structlog.get_logger()
 
-COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=5, shuffle=numcodecs.Blosc.SHUFFLE)
+COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=9, shuffle=numcodecs.Blosc.SHUFFLE)
 DS_KW = {"chunks": True, "compressor": COMPRESSOR, "cache_metadata": False}
 
 
