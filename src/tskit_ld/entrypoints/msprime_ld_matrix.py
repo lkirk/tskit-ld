@@ -11,13 +11,14 @@ import structlog
 import tskit
 import zarr
 from htcluster.api import BaseModel, job_wrapper, log_config
+from more_itertools import zip_equal
 
 from .common.msprime import SimulationParams, run_msprime
 
 log_config()
 LOG = structlog.get_logger()
 
-COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=9, shuffle=numcodecs.Blosc.SHUFFLE)
+COMPRESSOR = numcodecs.Blosc(cname="zstd", clevel=5, shuffle=numcodecs.Blosc.SHUFFLE)
 DS_KW = {"chunks": True, "compressor": COMPRESSOR, "cache_metadata": False}
 
 
@@ -25,6 +26,7 @@ class LDMatrixParams(BaseModel):
     sample_sets: list[list[int]] | None = None
     sites: list[list[int]] | None = None
     positions: list[list[float | int]] | None = None
+    summarize_site_by_tree: bool = False
     stat: list[str] | str
     mode: list[str] | str
 
@@ -120,23 +122,47 @@ def add_sim_metadata(g: zarr.Group, ts: tskit.TreeSequence) -> None:
     )
 
 
+def summarize_site_ld_by_tree(ts, ld):
+    # simplify things by masking the lower triangle and diagonal
+    ld[np.tril_indices_from(ld)] = np.nan
+    # sites grouped by tree boundaries
+    tree_groups = (
+        np.searchsorted(ts.breakpoints(as_array=True), ts.sites_position, side="right")
+        - 1
+    )
+    # get site breakpoint indexes for the tree groups
+    g, idx = np.unique(tree_groups, return_index=True)
+    # we store the sum and count to produce a mean during analysis
+    stat_sum = np.zeros((ts.num_trees, ts.num_trees), dtype=np.float64)
+    stat_count = np.zeros((ts.num_trees, ts.num_trees), dtype=np.float64)
+    # iterate over the upper triangle chunks, summing all non-nan elements
+    # NB: we actually cross the upper triangle when considering diagonal chunks
+    #     but this is mitigated by nan-masking the lower triangle
+    for inner, (i, r) in enumerate(zip_equal(g, np.vsplit(ld, idx[1:]))):
+        for j, c in zip_equal(g[inner:], np.hsplit(r, idx[inner + 1 :])):
+            stat_count[i, j] = c.size - np.isnan(c).sum()
+            stat_sum[i, j] = np.nansum(c)
+    return stat_sum, stat_count
+
+
 @job_wrapper(JobParams)
 def main(args: JobParams) -> None:
     params = args.params
     n_anc_reps, n_mut_reps = get_n_reps(params.sim)
     n_reps = n_anc_reps * n_mut_reps
+    ld_params = params.ld_matrix
     LOG.info(
         "Starting",
         n_anc_reps=n_anc_reps,
         n_mut_reps=n_mut_reps,
         n_tot_reps=n_reps,
-        stats=params.ld_matrix.stat,
+        stats=ld_params.stat,
     )
-    match params.ld_matrix.mode:
+    match ld_params.mode:
         case str():
-            modes = set([params.ld_matrix.mode])
+            modes = set([ld_params.mode])
         case list():
-            modes = set(params.ld_matrix.mode)
+            modes = set(ld_params.mode)
 
     rep = 1
     with zarr.ZipStore(args.out_files, mode="w") as store:
@@ -151,24 +177,39 @@ def main(args: JobParams) -> None:
                 add_sim_metadata(rep_group, ts)
                 if compute_branch:
                     g = rep_group.create_group("branch")
-                    for stat, ld in compute_ld_matrix(ts, params.ld_matrix, "branch"):
+                    for stat, ld in compute_ld_matrix(ts, ld_params, "branch"):
                         LOG.info("writing matrix")
                         g.create_dataset(
                             stat, data=ld, shape=ld.shape, dtype=ld.dtype, **DS_KW
                         )
+
                     LOG.info("writing breakpoints")
                     bp = ts.breakpoints(as_array=True)
                     g.create_dataset(
                         "breakpoints", data=bp, shape=bp.shape, dtype=bp.dtype, **DS_KW
                     )
+                    LOG.info("writing breakpoints")
+                    tot_branch_len = [t.total_branch_length for t in ts.trees()]
+                    g.create_dataset(
+                        "total_branch_length",
+                        data=tot_branch_len,
+                        shape=tot_branch_len.shape,
+                        dtype=tot_branch_len.dtype,
+                        **DS_KW,
+                    )
                     compute_branch = False
                 if "site" in modes:
                     g = rep_group.create_group("site")
-                    for stat, ld in compute_ld_matrix(ts, params.ld_matrix, "site"):
-                        LOG.info("writing matrix")
+                    for stat, ld in compute_ld_matrix(ts, ld_params, "site"):
+                        if ld_params.summarize_site_by_tree:
+                            LOG.info("writing summarized LD data")
+                            ld = np.vstack(summarize_site_ld_by_tree(ts, ld))
+                        else:
+                            LOG.info("writing matrix")
                         g.create_dataset(
                             stat, data=ld, shape=ld.shape, dtype=ld.dtype, **DS_KW
                         )
+
                     LOG.info("writing positions")
                     pos = ts.sites_position
                     g.create_dataset(
