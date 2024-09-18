@@ -132,17 +132,15 @@ def summarize_site_ld_by_tree(ts, ld):
     )
     # get site breakpoint indexes for the tree groups
     g, idx = np.unique(tree_groups, return_index=True)
-    # we store the sum and count to produce a mean during analysis
-    stat_sum = np.zeros((ts.num_trees, ts.num_trees), dtype=np.float64)
-    stat_count = np.zeros((ts.num_trees, ts.num_trees), dtype=np.float64)
+    # we store the mean to be summarized during analysis
+    stat_mean = np.zeros((ts.num_trees, ts.num_trees), dtype=np.float64)
     # iterate over the upper triangle chunks, summing all non-nan elements
     # NB: we actually cross the upper triangle when considering diagonal chunks
     #     but this is mitigated by nan-masking the lower triangle
     for inner, (i, r) in enumerate(zip_equal(g, np.vsplit(ld, idx[1:]))):
         for j, c in zip_equal(g[inner:], np.hsplit(r, idx[inner + 1 :])):
-            stat_count[i, j] = c.size - np.isnan(c).sum()
-            stat_sum[i, j] = np.nansum(c)
-    return stat_sum, stat_count
+            stat_mean[i, j] = np.nanmean(c)
+    return stat_mean
 
 
 @job_wrapper(JobParams)
@@ -189,7 +187,9 @@ def main(args: JobParams) -> None:
                         "breakpoints", data=bp, shape=bp.shape, dtype=bp.dtype, **DS_KW
                     )
                     LOG.info("writing breakpoints")
-                    tot_branch_len = [t.total_branch_length for t in ts.trees()]
+                    tot_branch_len = np.array(
+                        [t.total_branch_length for t in ts.trees()]
+                    )
                     g.create_dataset(
                         "total_branch_length",
                         data=tot_branch_len,
@@ -203,7 +203,7 @@ def main(args: JobParams) -> None:
                     for stat, ld in compute_ld_matrix(ts, ld_params, "site"):
                         if ld_params.summarize_site_by_tree:
                             LOG.info("writing summarized LD data")
-                            ld = np.vstack(summarize_site_ld_by_tree(ts, ld))
+                            ld = summarize_site_ld_by_tree(ts, ld)
                         else:
                             LOG.info("writing matrix")
                         g.create_dataset(
