@@ -1,19 +1,11 @@
-# Requirements for editing, analysis, and data processing
-demesdraw
-great_tables
-ipdb
-ipykernel
-ipython
-itables
+# base requirements for job execution, used in docker container
+htcluster@git+https://github.com/lkirk/htcluster.git
 joblib
-matplotlib
 moments-popgen
 more-itertools
-palettable
-pandas
 polars
 pyarrow
 pyslim
+tskit@git+https://github.com/lkirk/tskit.git@46578bdc28211230ad7815b116564e57c2ba88e7#subdirectory=python
 tszip
-htcluster[job_submit]@git+https://github.com/lkirk/htcluster.git
-tskit@git+https://github.com/lkirk/tskit.git@two-locus-staging#subdirectory=python
+zarr

@@ -1,0 +1,7 @@
+# requirements for editing, analysis, and data processing
+demesdraw
+ipdb
+ipykernel
+ipython
+matplotlib
+palettable
