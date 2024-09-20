@@ -31,7 +31,7 @@ python -m venv ve
 source ve/bin/activate
 
 if [[ -z "$UPDATE" ]]; then
-    ve/bin/pip install --no-deps -r "$REPO_DIR/etc/dev-requirements-frozen.txt" .
+    ve/bin/pip install --no-deps -r "$REPO_DIR/etc/dev-requirements-frozen.txt" -e .
 else
     ve/bin/pip install -e '.[dev]'
     ve/bin/pip freeze \
