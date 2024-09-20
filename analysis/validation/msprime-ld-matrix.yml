@@ -1,0 +1,50 @@
+job:
+  name: msprime-ld-matrix
+  memory: 10GB
+  disk: 1GB
+  cpus: 1
+  entrypoint: tskit_ld.entrypoints.msprime_ld_matrix:main
+  docker_image: ghcr.io/lkirk/tskit-ld/analysis
+  out_staging: true
+  additional_args:
+    max_idle: 1000
+params:
+  out_files: !file_range
+    fmt: ld_{}.zip
+    num: 10000
+  params:
+    sim:
+      !product
+      ancestry_params:
+        !product
+        sequence_length: [1e4]
+        recombination_rate: [5e-6]
+        population_size: [5000]
+        samples: [100]
+        ploidy: [1]
+        random_seed: [33]
+        num_replicates: [1]
+      mutation_params:
+        !product
+        rate: [5e-5]
+        discrete_genome: [false]
+        random_seeds: !split {arr: !randint_32 {seed: 23, size: 100_000}, n: 10000}
+    ld_matrix:
+      !repeat
+      rep:
+        summarize_site_by_tree: true
+        stat:
+            - D
+            - D2
+            - r2
+            - D_prime
+            - r
+            - Dz
+            - pi2
+            - Dz_unbiased
+            - D2_unbiased
+            - pi2_unbiased
+        mode:
+          site
+          # - branch
+      n: 10000
