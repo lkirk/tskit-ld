@@ -1,5 +1,5 @@
 # base requirements for job execution, used in docker container
-htcluster @ git+https://github.com/lkirk/htcluster.git@3792a39d42484f238f4fa85a4a01b40024355828
+htcluster @ git+https://github.com/lkirk/htcluster.git@b99c654c7c5709dfb7151779c726e90572dd19a2
 joblib==1.4.2
 moments-popgen==1.2.2
 more-itertools==10.5.0
