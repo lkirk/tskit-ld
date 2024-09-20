@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import numpy as np
+import numpy.typing as npt
+
 
 class TreeSequence:
     def __init__(self, ll_tree_sequence) -> None: ...
@@ -15,7 +18,7 @@ class TreeSequence:
         ignore_provenance=...,
         ignore_timestamps=...,
         ignore_tables=...,
-        ignore_reference_sequence=...
+        ignore_reference_sequence=...,
     ) -> bool: ...
     @property
     def ll_tree_sequence(self) -> Any: ...
@@ -115,7 +118,7 @@ class TreeSequence:
     def mutations(self) -> Generator[Any, Any, None]: ...
     def populations(self) -> SimpleContainerSequence: ...
     def provenances(self) -> SimpleContainerSequence: ...
-    def breakpoints(self, as_array=...) -> map[float]: ...
+    def breakpoints(self, as_array=...) -> map[float] | npt.NDArray[np.float64]: ...
     def at(self, position, **kwargs) -> Tree: ...
     def at_index(self, index, **kwargs) -> Tree: ...
     def first(self, **kwargs) -> Tree: ...
@@ -129,7 +132,7 @@ class TreeSequence:
         sample_counts=...,
         tracked_leaves=...,
         leaf_counts=...,
-        leaf_lists=...
+        leaf_lists=...,
     ) -> TreeIterator: ...
     def coiterate(
         self, other, **kwargs
@@ -142,7 +145,7 @@ class TreeSequence:
         samples=...,
         left=...,
         right=...,
-        impute_missing_data=...
+        impute_missing_data=...,
     ) -> Generator[Any, Any, None]: ...
     def variants(
         self,
@@ -153,7 +156,7 @@ class TreeSequence:
         impute_missing_data=...,
         copy=...,
         left=...,
-        right=...
+        right=...,
     ) -> Generator[Variant, Any, None]: ...
     def genotype_matrix(
         self,
@@ -161,7 +164,7 @@ class TreeSequence:
         samples=...,
         isolated_as_missing=...,
         alleles=...,
-        impute_missing_data=...
+        impute_missing_data=...,
     ) -> NDArray[signedinteger[_32Bit]]: ...
     def alignments(
         self,
@@ -170,7 +173,7 @@ class TreeSequence:
         missing_data_character=...,
         samples=...,
         left=...,
-        right=...
+        right=...,
     ) -> Generator[Any, Any, None]: ...
     @property
     def individuals_population(self): ...
@@ -253,7 +256,7 @@ class TreeSequence:
         site_mask=...,
         sample_mask=...,
         isolated_as_missing=...,
-        allow_position_zero=...
+        allow_position_zero=...,
     ) -> None: ...
     def write_fasta(
         self,
@@ -261,7 +264,7 @@ class TreeSequence:
         *,
         wrap_width=...,
         reference_sequence=...,
-        missing_data_character=...
+        missing_data_character=...,
     ) -> None: ...
     def as_fasta(self, **kwargs) -> str: ...
     def write_nexus(
@@ -272,7 +275,7 @@ class TreeSequence:
         include_trees=...,
         include_alignments=...,
         reference_sequence=...,
-        missing_data_character=...
+        missing_data_character=...,
     ) -> None: ...
     def as_nexus(self, **kwargs) -> str: ...
     def to_macs(self) -> str: ...
@@ -291,7 +294,7 @@ class TreeSequence:
         keep_unary_in_individuals=...,
         keep_input_roots=...,
         record_provenance=...,
-        filter_zero_mutation_sites=...
+        filter_zero_mutation_sites=...,
     ) -> tuple[TreeSequence, Any] | TreeSequence: ...
     def delete_sites(self, site_ids, record_provenance=...) -> TreeSequence: ...
     def delete_intervals(
@@ -350,7 +353,7 @@ class TreeSequence:
         omit_sites=...,
         canvas_size=...,
         max_num_trees=...,
-        **kwargs
+        **kwargs,
     ) -> SVGString: ...
     def draw_text(
         self,
@@ -360,7 +363,7 @@ class TreeSequence:
         time_label_format=...,
         position_label_format=...,
         order=...,
-        **kwargs
+        **kwargs,
     ) -> str: ...
     def general_stat(
         self,
@@ -398,7 +401,7 @@ class TreeSequence:
         windows=...,
         num_threads=...,
         mode=...,
-        span_normalise=...
+        span_normalise=...,
     ) -> Any | NDArray[Any] | int: ...
     def genetic_relatedness(
         self,
@@ -417,7 +420,7 @@ class TreeSequence:
         windows=...,
         num_threads=...,
         mode=...,
-        span_normalise=...
+        span_normalise=...,
     ) -> Any | NDArray[Any] | int: ...
     def genetic_relatedness_weighted(
         self, W, indexes=..., windows=..., mode=..., span_normalise=..., polarised=...
@@ -470,7 +473,7 @@ class TreeSequence:
         max_time=...,
         min_span=...,
         store_pairs=...,
-        store_segments=...
+        store_segments=...,
     ) -> IdentitySegments: ...
     def pair_coalescence_counts(
         self,
@@ -507,5 +510,5 @@ def load(
     file: Path | int,
     *,
     skip_tables: bool = False,
-    skip_reference_sequence: bool = False
+    skip_reference_sequence: bool = False,
 ) -> TreeSequence: ...
