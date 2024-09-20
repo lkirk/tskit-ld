@@ -10,7 +10,7 @@ import pydantic
 import structlog
 import tskit
 import zarr
-from htcluster.api import BaseModel, job_wrapper, log_config
+from htcluster.api.job import BaseModel, job_wrapper, log_config
 from more_itertools import zip_equal
 
 from .common.msprime import SimulationParams, run_msprime

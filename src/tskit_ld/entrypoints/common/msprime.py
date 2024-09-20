@@ -6,7 +6,7 @@ from typing import Self
 import demes
 import msprime
 import tskit
-from htcluster.api.wrapper import BaseModel
+from htcluster.api.job import BaseModel
 from more_itertools import zip_equal
 from pydantic import (
     BeforeValidator,
