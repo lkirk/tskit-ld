@@ -31,13 +31,25 @@ python -m venv ve
 source ve/bin/activate
 
 if [[ -z "$UPDATE" ]]; then
-    pip install -r "$REPO_DIR/docker/derived/requirements-frozen.txt"
-    pip install -e .
+    ve/bin/pip install --no-deps -r "$REPO_DIR/etc/dev-requirements-frozen.txt" .
 else
-    pip install -e .
-    pip freeze -r "$REPO_DIR/etc/requirements.txt" | grep -v 'git@github.com/lkirk/tskit-ld' > "$REPO_DIR/docker/derived/requirements-frozen.txt"
-
-    echo "requirements diff ==================================="
-    git diff "$REPO_DIR/docker/derived/requirements-frozen.txt"
-    echo "requirements diff ==================================="
+    ve/bin/pip install -e '.[dev]'
+    ve/bin/pip freeze \
+               --exclude-editable \
+               -r "$REPO_DIR/etc/requirements.txt" \
+               -r "$REPO_DIR/etc/dev-requirements.txt" \
+               > "$REPO_DIR/etc/dev-requirements-frozen.txt"
+    python -m venv minimal-ve
+    minimal-ve/bin/pip install -e .
+    minimal-ve/bin/pip freeze \
+               --exclude-editable \
+               -r "$REPO_DIR/etc/requirements.txt" \
+               > "$REPO_DIR/docker/analysis/requirements-frozen.txt"
+    rm -r minimal-ve
+    echo "dev requirements diff ==================================="
+    git diff "$REPO_DIR/docker/analysis/requirements-frozen.txt"
+    echo "dev requirements diff ==================================="
+    echo "docker requirements diff ==================================="
+    git diff "$REPO_DIR/etc/dev-requirements-frozen.txt"
+    echo "docker requirements diff ==================================="
 fi
