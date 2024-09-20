@@ -9,7 +9,7 @@ import numpy as np
 import polars as pl
 import structlog
 import tskit
-from htcluster.api import BaseModel, job_wrapper, log_config
+from htcluster.api.wrapper import BaseModel, job_wrapper, log_config
 from more_itertools import zip_equal
 
 from tskit_ld.io import write_parquet
