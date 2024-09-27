@@ -1,6 +1,6 @@
 job:
   name: msprime-ld-matrix
-  memory: 10GB
+  memory: 15GB
   disk: 1GB
   cpus: 1
   entrypoint: tskit_ld.entrypoints.msprime_ld_matrix:main
