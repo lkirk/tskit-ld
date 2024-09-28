@@ -155,18 +155,21 @@ def summarize_site_ld_by_tree(
 def merge_result(out_path: Path) -> None:
     """Merge data by taking the mean of each replicate, replace the final output"""
     merged_path = Path(out_path).with_suffix(".merged")
-    with zarr.ZipStore(merged_path, mode="w") as merged_store:
+    with zarr.ZipStore(out_path, mode="w") as store, zarr.ZipStore(
+        merged_path, mode="w"
+    ) as merged_store:
         merged_root = zarr.group(store=merged_store)
-        merged_root.attrs[out_path] = merged_root.attrs.asdict()
-        g = merged_root.create_group(out_path)
-        for stat in merged_root.attrs["stats"]:
+        root = zarr.group(store=store)
+        merged_root.attrs[out_path] = root.attrs.asdict()
+        mg = merged_root.create_group(out_path)
+        for stat in root.attrs["stats"]:
             mean = np.nanmean(
-                np.dstack([g["site"][stat] for g in merged_root.values()]), axis=2
+                np.dstack([g["site"][stat] for g in root.values()]), axis=2
             )
-            merge_shape = {g["site"][stat].shape for g in merged_root.values()}
-            if {mean.shape} != merge_shape:
-                raise ValueError(f"shapes disagree: {mean.shape}, {merge_shape}")
-            g.create_dataset(
+            shape = {g["site"][stat].shape for g in root.values()}
+            if {mean.shape} != shape:
+                raise ValueError(f"shapes disagree: {mean.shape}, {shape}")
+            mg.create_dataset(
                 stat, data=mean, shape=mean.shape, dtype=mean.dtype, **DS_KW
             )
     # Replace the out path with the merged data
