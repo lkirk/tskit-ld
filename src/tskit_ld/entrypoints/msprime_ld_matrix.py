@@ -2,16 +2,18 @@ import json
 from collections.abc import Iterator
 from itertools import groupby
 from pathlib import Path
+from typing import cast
 
 import numcodecs
 import numpy as np
-import numpy.typing as npt
 import pydantic
 import structlog
 import tskit
 import zarr
 from htcluster.api.job import BaseModel, job_wrapper, log_config
 from more_itertools import zip_equal
+
+from tskit_ld.types import NPFloat64Array
 
 from .common.msprime import SimulationParams, run_msprime
 
@@ -27,6 +29,7 @@ class LDMatrixParams(BaseModel):
     sites: list[list[int]] | None = None
     positions: list[list[float | int]] | None = None
     summarize_site_by_tree: bool = False
+    merge_mean: bool = False
     stat: list[str] | str
     mode: list[str] | str
 
@@ -56,7 +59,7 @@ class JobParams(BaseModel):
 
 def compute_ld_matrix(
     ts: tskit.TreeSequence, params: LDMatrixParams, mode: str
-) -> Iterator[tuple[str, npt.NDArray[np.float64]]]:
+) -> Iterator[tuple[str, NPFloat64Array]]:
     stats = [params.stat] if isinstance(params.stat, str) else params.stat
     if mode == "branch":
         for stat in stats:
@@ -122,12 +125,18 @@ def add_sim_metadata(g: zarr.Group, ts: tskit.TreeSequence) -> None:
     )
 
 
-def summarize_site_ld_by_tree(ts, ld):
+def summarize_site_ld_by_tree(
+    ts: tskit.TreeSequence, ld: NPFloat64Array
+) -> NPFloat64Array:
     # simplify things by masking the lower triangle and diagonal
     ld[np.tril_indices_from(ld)] = np.nan
     # sites grouped by tree boundaries
     tree_groups = (
-        np.searchsorted(ts.breakpoints(as_array=True), ts.sites_position, side="right")
+        np.searchsorted(
+            cast(NPFloat64Array, ts.breakpoints(as_array=True)),
+            ts.sites_position,
+            side="right",
+        )
         - 1
     )
     # get site breakpoint indexes for the tree groups
@@ -141,6 +150,27 @@ def summarize_site_ld_by_tree(ts, ld):
         for j, c in zip_equal(g[inner:], np.hsplit(r, idx[inner + 1 :])):
             stat_mean[i, j] = np.nanmean(c)
     return stat_mean
+
+
+def merge_result(out_path: Path) -> None:
+    """Merge data by taking the mean of each replicate, replace the final output"""
+    merged_path = Path(out_path).with_suffix(".merged")
+    with zarr.ZipStore(merged_path, mode="w") as merged_store:
+        merged_root = zarr.group(store=merged_store)
+        merged_root.attrs[out_path] = merged_root.attrs.asdict()
+        g = merged_root.create_group(out_path)
+        for stat in merged_root.attrs["stats"]:
+            mean = np.nanmean(
+                np.dstack([g["site"][stat] for g in merged_root.values()]), axis=2
+            )
+            merge_shape = {g["site"][stat].shape for g in merged_root.values()}
+            if {mean.shape} != merge_shape:
+                raise ValueError(f"shapes disagree: {mean.shape}, {merge_shape}")
+            g.create_dataset(
+                stat, data=mean, shape=mean.shape, dtype=mean.dtype, **DS_KW
+            )
+    # Replace the out path with the merged data
+    merged_path.rename(out_path)
 
 
 @job_wrapper(JobParams)
@@ -182,7 +212,7 @@ def main(args: JobParams) -> None:
                         )
 
                     LOG.info("writing breakpoints")
-                    bp = ts.breakpoints(as_array=True)
+                    bp = cast(NPFloat64Array, ts.breakpoints(as_array=True))
                     g.create_dataset(
                         "breakpoints", data=bp, shape=bp.shape, dtype=bp.dtype, **DS_KW
                     )
@@ -216,5 +246,8 @@ def main(args: JobParams) -> None:
                         "sites_pos", data=pos, shape=pos.shape, dtype=pos.dtype, **DS_KW
                     )
                 rep += 1
+
+    if params.ld_matrix.merge_mean:
+        merge_result(args.out_files)
 
     LOG.info("wrote result", file=args.out_files)
