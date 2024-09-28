@@ -153,7 +153,12 @@ def summarize_site_ld_by_tree(
 
 
 def merge_result(out_path: Path) -> None:
-    """Merge data by taking the mean of each replicate, replace the final output"""
+    """
+    Merge data by taking the mean of each replicate, replace the final output
+
+    NB Does not retain provenance metadata
+    TODO: only works for sites
+    """
     merged_path = Path(out_path).with_suffix(".merged")
     with zarr.ZipStore(out_path, mode="r") as store, zarr.ZipStore(
         merged_path, mode="w"
