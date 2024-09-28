@@ -1,7 +1,7 @@
 job:
   name: msprime-ld-matrix
   memory: 15GB
-  disk: 1GB
+  disk: 5GB
   cpus: 1
   entrypoint: tskit_ld.entrypoints.msprime_ld_matrix:main
   docker_image: ghcr.io/lkirk/tskit-ld/analysis
@@ -33,6 +33,7 @@ params:
       !repeat
       rep:
         summarize_site_by_tree: true
+        merge_mean: true
         stat:
             - D
             - D2
