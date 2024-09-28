@@ -155,7 +155,7 @@ def summarize_site_ld_by_tree(
 def merge_result(out_path: Path) -> None:
     """Merge data by taking the mean of each replicate, replace the final output"""
     merged_path = Path(out_path).with_suffix(".merged")
-    with zarr.ZipStore(out_path, mode="w") as store, zarr.ZipStore(
+    with zarr.ZipStore(out_path, mode="r") as store, zarr.ZipStore(
         merged_path, mode="w"
     ) as merged_store:
         merged_root = zarr.group(store=merged_store)
