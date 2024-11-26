@@ -1,6 +1,10 @@
+from dataclasses import dataclass, fields
+from itertools import zip_longest
+
 import matplotlib.pyplot as plt
 import msprime
 import numpy as np
+import numpy.typing as npt
 from joblib import Parallel, delayed
 
 STAT_TEX = {
@@ -26,7 +30,7 @@ def gen_mut_sims(ts, seed, n, *args, **kwargs):
 
 
 def tree_sum(ts, data):
-    num_sites = np.array([t.num_sites for t in ts.trees()])
+    num_sites = np.array([t.num_sites for t in ts.trees()], dtype=np.int64)
     out_idx = np.where(num_sites)[0]
     add_idx = np.cumsum(num_sites[out_idx[:-1]])
     count = np.outer(num_sites, num_sites)
@@ -39,7 +43,7 @@ def tree_sum(ts, data):
         out[np.ix_(out_idx, out_idx)] = np.add.reduceat(
             np.add.reduceat(data, add_idx, axis=0), add_idx, axis=1
         )
-    return np.stack([out, count])
+    return out, count
 
 
 def zero_diag(a):
@@ -53,13 +57,14 @@ def zero_diag(a):
 
 
 def ts_exec(ts, attr, *args, **kwargs):
+    """
+    Execute tree sequence method with arguments
+    """
     return getattr(ts, attr)(*args, **kwargs)
 
 
 def ts_exec_and_sum(ts, attr, *args, **kwargs):
-    # if kwargs.pop("nodiag", None) is True:
     return tree_sum(ts, zero_diag(ts_exec(ts, attr, *args, **kwargs)))
-    # return tree_sum(ts, ts_exec(ts, attr, *args, **kwargs))
 
 
 def parallel(it, **kwargs):
@@ -68,6 +73,7 @@ def parallel(it, **kwargs):
         n_jobs=kwargs.pop("n_jobs", 15),
         verbose=kwargs.pop("verbose", 1),
         return_as=kwargs.pop("return_as", "list"),
+        **kwargs,
     )(it)
 
 
@@ -76,47 +82,49 @@ def site_ld_matrix(ts, seed, n_reps, mu, *ldargs, pkw=None, **ldkw):
     Data Dimensions: [rep, stat=0/count=1, siterow, sitecol]
     """
     pkwargs = dict() if pkw is None else pkw
-    return np.stack(
-        parallel(
-            (
-                delayed(ts_exec_and_sum)(mts, "ld_matrix", *ldargs, mode="site", **ldkw)
-                for mts in gen_mut_sims(
-                    ts, seed, n_reps, rate=mu, discrete_genome=False
-                )
-            ),
-            **pkwargs,
-        )  # type: ignore
-    )  # type: ignore
+    stat = np.zeros((ts.num_trees, ts.num_trees), dtype=np.float64)
+    count = np.zeros((ts.num_trees, ts.num_trees), dtype=np.int64)
+    site_jobs = (
+        delayed(ts_exec_and_sum)(mts, "ld_matrix", *ldargs, mode="site", **ldkw)
+        for mts in gen_mut_sims(ts, seed, n_reps, rate=mu, discrete_genome=False)
+    )
+
+    pkwargs["return_as"] = "generator"
+    for s, c in parallel(site_jobs, **pkwargs):  # type: ignore
+        stat += s
+        count += c
+    return stat, count
+
+
+@dataclass
+class LDResult:
+    branch: dict[str, npt.NDArray[np.float64]]
+    site: dict[str, npt.NDArray[np.float64]]
+    site_count: dict[str, npt.NDArray[np.int64]]
+    stats: list[str]
+
+    def __repr__(self):
+        stats = ", ".join(self.stats)
+        field_names = f"{', '.join([f.name for f in fields(self)])}"
+        return f"{self.__class__.__name__}(fields=[{field_names}], stats=[{stats}])"
 
 
 def compute_ld(ts, stats, seed, n_reps, mu, verbose=1):
-    branch_mats = {
-        s: mat
-        for s, mat in zip(
-            stats,
-            parallel(
-                (
-                    delayed(ts_exec)(ts, "ld_matrix", mode="branch", stat=s)
-                    for s in stats
-                ),
-                verbose=verbose,
-            ),
-        )
-    }
-    return {
-        s: (
-            site_ld_matrix(
-                ts,
-                seed,
-                n_reps=n_reps,
-                mu=mu,
-                stat=s,
-                pkw=dict(verbose=verbose),
-            ),
-            branch_mats[s],
-        )
+    branch_jobs = (
+        delayed(ts_exec)(ts, "ld_matrix", mode="branch", stat=s) for s in stats
+    )
+    branch = dict(zip(stats, parallel(branch_jobs, verbose=verbose)))
+    site_jobs = (
+        site_ld_matrix(ts, seed, n_reps, mu, stat=s, pkw=dict(verbose=verbose))
         for s in stats
-    }
+    )
+    site, count = tuple(zip(*site_jobs))
+    return LDResult(
+        branch=branch,  # type: ignore
+        site=dict(zip(stats, site)),
+        site_count=dict(zip(stats, count)),
+        stats=stats,
+    )
 
 
 def rel_err(obs, exp):
@@ -124,7 +132,7 @@ def rel_err(obs, exp):
 
 
 def compare(site, branch, n_reps, L2, mu):
-    s = site[:, 0, :, :].sum(0) / L2 / n_reps
+    s = site / L2 / n_reps
     b = branch * mu**2
     return s, b, rel_err(s, b) * 100
 
@@ -134,20 +142,27 @@ def print_compare(site, branch, n_reps, L2, mu):
     print("site\n", s, "\nbranch\n", b, "\nRelative Percent Error\n", err)
 
 
-def plot_compare(stats, n_reps, L2, mu):
-    assert len(stats) <= 10
+def plot_compare(stats, n_reps, L2, mu, n_rows=2):
+    n_cols, add1 = divmod(len(stats.stats), n_rows)
+    n_cols += 1 if add1 else 0
     fig, axes = plt.subplots(
-        2,
-        5,
-        figsize=(2 * 5, 2 * 2),
+        n_rows,
+        n_cols,
+        figsize=(2 * n_cols, 2 * n_rows),
         subplot_kw=dict(box_aspect=1),
         layout="constrained",
     )
-    for ax, (stat, (site, branch)) in zip(axes.flatten(), stats.items()):
-        s, b = [m.flatten() for m in compare(site, branch, n_reps, L2, mu)[:-1]]
+    for ax, stat in zip_longest(axes.flatten(), stats.stats, fillvalue=None):
+        if stat is None:
+            ax.remove()  # type: ignore
+            continue
+        s, b = [
+            m.flatten()
+            for m in compare(stats.site[stat], stats.branch[stat], n_reps, L2, mu)[:-1]
+        ]
         xy_line = np.linspace(np.min([s, b]), np.max([s, b]))
-        ax.scatter(s, b, s=5)
-        ax.plot(xy_line, xy_line, c="C1", alpha=0.8)
-        ax.set_title(STAT_TEX[stat])
-    fig.supylabel("Branch stat")
+        ax.scatter(s, b, s=5)  # type: ignore
+        ax.plot(xy_line, xy_line, c="C1", alpha=0.8)  # type: ignore
+        ax.set_title(STAT_TEX[stat])  # type: ignore
     fig.supxlabel("Site stat")
+    fig.supylabel("Branch stat")
