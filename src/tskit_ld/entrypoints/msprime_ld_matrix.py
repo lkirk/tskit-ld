@@ -8,10 +8,9 @@ import numcodecs
 import numpy as np
 import pydantic
 import structlog
-import tskit
 import zarr
 from htcluster.api.job import BaseModel, job_wrapper, log_config
-from more_itertools import zip_equal
+from tskit import TreeSequence
 
 from tskit_ld.types import NPFloat64Array
 
@@ -28,10 +27,13 @@ class LDMatrixParams(BaseModel):
     sample_sets: list[list[int]] | None = None
     sites: list[list[int]] | None = None
     positions: list[list[float | int]] | None = None
-    summarize_site_by_tree: bool = False
-    merge_mean: bool = False
     stat: list[str] | str
     mode: list[str] | str
+
+    sum_site_by_tree: bool = False
+    sum_site_by_rep: bool = False  # Implies sum_site_by_tree
+    store_tree_breakpoints: bool = False
+    store_total_branch_length: bool = False
 
     @pydantic.field_validator("mode")
     @classmethod
@@ -58,7 +60,7 @@ class JobParams(BaseModel):
 
 
 def compute_ld_matrix(
-    ts: tskit.TreeSequence, params: LDMatrixParams, mode: str
+    ts: TreeSequence, params: LDMatrixParams, mode: str
 ) -> Iterator[tuple[str, NPFloat64Array]]:
     stats = [params.stat] if isinstance(params.stat, str) else params.stat
     if mode == "branch":
@@ -111,7 +113,7 @@ def add_job_metadata(g: zarr.Group, params: MsprimeLDMatrixParams) -> None:
     g.attrs.update(**attrs)
 
 
-def add_sim_metadata(g: zarr.Group, ts: tskit.TreeSequence) -> None:
+def add_sim_metadata(g: zarr.Group, ts: TreeSequence) -> None:
     g.attrs.update(
         **{
             "provenance": [json.loads(p.record) for p in ts.provenances()],
@@ -125,60 +127,48 @@ def add_sim_metadata(g: zarr.Group, ts: tskit.TreeSequence) -> None:
     )
 
 
-def summarize_site_ld_by_tree(
-    ts: tskit.TreeSequence, ld: NPFloat64Array
-) -> NPFloat64Array:
-    # simplify things by masking the lower triangle and diagonal
-    ld[np.tril_indices_from(ld)] = np.nan
-    # sites grouped by tree boundaries
-    tree_groups = (
-        np.searchsorted(
-            cast(NPFloat64Array, ts.breakpoints(as_array=True)),
-            ts.sites_position,
-            side="right",
+def zero_diag(a):
+    """
+    Zero out the diagonal of a given matrix.
+    Will throw an error if matrix is not square.
+    Use the return value or not, a copy is not made.
+    """
+    a[np.diag_indices_from(a)] = 0
+    return a
+
+
+def sum_site_ld_by_tree(ts: TreeSequence, data: NPFloat64Array) -> NPFloat64Array:
+    num_sites = np.array([t.num_sites for t in ts.trees()], dtype=np.int64)
+    out_idx = np.where(num_sites)[0]
+    add_idx = np.cumsum(num_sites[out_idx[:-1]])
+
+    out = np.zeros((ts.num_trees, ts.num_trees), dtype=np.float64)
+
+    if len(add_idx) > 0:
+        if add_idx[0] != 0:
+            add_idx = np.insert(add_idx, 0, 0)
+        out[np.ix_(out_idx, out_idx)] = np.add.reduceat(
+            np.add.reduceat(data, add_idx, axis=0), add_idx, axis=1
         )
-        - 1
+    return out
+
+
+def store_tree_breakpoints(ts: TreeSequence, g: zarr.Group) -> None:
+    LOG.info("writing breakpoints")
+    bp = cast(NPFloat64Array, ts.breakpoints(as_array=True))
+    g.create_dataset("breakpoints", data=bp, shape=bp.shape, dtype=bp.dtype, **DS_KW)
+
+
+def store_total_branch_length(ts: TreeSequence, g: zarr.Group) -> None:
+    LOG.info("writing total branch lengths")
+    tot_branch_len = np.array([t.total_branch_length for t in ts.trees()])
+    g.create_dataset(
+        "total_branch_length",
+        data=tot_branch_len,
+        shape=tot_branch_len.shape,
+        dtype=tot_branch_len.dtype,
+        **DS_KW,
     )
-    # get site breakpoint indexes for the tree groups
-    g, idx = np.unique(tree_groups, return_index=True)
-    # we store the mean to be summarized during analysis
-    stat_mean = np.zeros((ts.num_trees, ts.num_trees), dtype=np.float64)
-    # iterate over the upper triangle chunks, summing all non-nan elements
-    # NB: we actually cross the upper triangle when considering diagonal chunks
-    #     but this is mitigated by nan-masking the lower triangle
-    for inner, (i, r) in enumerate(zip_equal(g, np.vsplit(ld, idx[1:]))):
-        for j, c in zip_equal(g[inner:], np.hsplit(r, idx[inner + 1 :])):
-            stat_mean[i, j] = np.nanmean(c)
-    return stat_mean
-
-
-def merge_result(out_path: Path) -> None:
-    """
-    Merge data by taking the mean of each replicate, replace the final output
-
-    NB Does not retain provenance metadata
-    TODO: only works for sites
-    """
-    merged_path = Path(out_path).with_suffix(".merged")
-    with zarr.ZipStore(out_path, mode="r") as store, zarr.ZipStore(
-        merged_path, mode="w"
-    ) as merged_store:
-        merged_root = zarr.group(store=merged_store)
-        root = zarr.group(store=store)
-        merged_root.attrs[out_path] = root.attrs.asdict()
-        mg = merged_root.create_group(out_path)
-        for stat in root.attrs["stats"]:
-            mean = np.nanmean(
-                np.dstack([g["site"][stat] for g in root.values()]), axis=2
-            )
-            shape = {g["site"][stat].shape for g in root.values()}
-            if {mean.shape} != shape:
-                raise ValueError(f"shapes disagree: {mean.shape}, {shape}")
-            mg.create_dataset(
-                stat, data=mean, shape=mean.shape, dtype=mean.dtype, **DS_KW
-            )
-    # Replace the out path with the merged data
-    merged_path.rename(out_path)
 
 
 @job_wrapper(JobParams)
@@ -204,58 +194,72 @@ def main(args: JobParams) -> None:
     with zarr.ZipStore(args.out_files, mode="w") as store:
         root = zarr.group(store=store)
         add_job_metadata(root, params)
+        ld_group = root.create_group("ld")
+        meta_group = root.create_group("ts_meta")
 
         for _, group in groupby(run_msprime(params.sim), key=lambda g: g[0]):
-            compute_branch = "branch" in modes
+            anc_seen = set()
             for anc_rep, mut_rep, ts in group:
+                if anc_rep not in anc_seen:
+                    ts_data_group = meta_group.create_group(anc_rep)
+                    if ld_params.store_tree_breakpoints:
+                        store_tree_breakpoints(ts, ts_data_group)
+                    if ld_params.store_total_branch_length:
+                        store_total_branch_length(ts, ts_data_group)
+
                 LOG.info("Computing LD", rep=f"{rep}/{n_reps}")
-                rep_group = root.create_group((anc_rep, mut_rep))
+                if ld_params.sum_site_by_rep and anc_rep not in anc_seen:
+                    rep_group = ld_group.create_group(anc_rep)
+                elif not ld_params.sum_site_by_rep:
+                    rep_group = ld_group.create_group((anc_rep, mut_rep))
+
                 add_sim_metadata(rep_group, ts)
-                if compute_branch:
+
+                if "branch" in modes and anc_rep not in anc_seen:
                     g = rep_group.create_group("branch")
                     for stat, ld in compute_ld_matrix(ts, ld_params, "branch"):
-                        LOG.info("writing matrix")
+                        LOG.info("writing branch matrix")
                         g.create_dataset(
                             stat, data=ld, shape=ld.shape, dtype=ld.dtype, **DS_KW
                         )
 
-                    LOG.info("writing breakpoints")
-                    bp = cast(NPFloat64Array, ts.breakpoints(as_array=True))
-                    g.create_dataset(
-                        "breakpoints", data=bp, shape=bp.shape, dtype=bp.dtype, **DS_KW
-                    )
-                    LOG.info("writing breakpoints")
-                    tot_branch_len = np.array(
-                        [t.total_branch_length for t in ts.trees()]
-                    )
-                    g.create_dataset(
-                        "total_branch_length",
-                        data=tot_branch_len,
-                        shape=tot_branch_len.shape,
-                        dtype=tot_branch_len.dtype,
-                        **DS_KW,
-                    )
-                    compute_branch = False
                 if "site" in modes:
-                    g = rep_group.create_group("site")
+                    if (
+                        ld_params.sum_site_by_rep
+                        and anc_rep not in anc_seen
+                        or not ld_params.sum_site_by_rep
+                    ):
+                        g = rep_group.create_group("site")
+                    else:
+                        g = rep_group["site"]
                     for stat, ld in compute_ld_matrix(ts, ld_params, "site"):
-                        if ld_params.summarize_site_by_tree:
+                        if ld_params.sum_site_by_tree or ld_params.sum_site_by_rep:
                             LOG.info("writing summarized LD data")
-                            ld = summarize_site_ld_by_tree(ts, ld)
-                        else:
-                            LOG.info("writing matrix")
-                        g.create_dataset(
-                            stat, data=ld, shape=ld.shape, dtype=ld.dtype, **DS_KW
-                        )
+                            if ld_params.sum_site_by_rep:
+                                ld = sum_site_ld_by_tree(ts, zero_diag(ld))
+                            else:
+                                ld = sum_site_ld_by_tree(ts, ld)
+                        if (not ld_params.sum_site_by_rep) or (
+                            ld_params.sum_site_by_rep and anc_rep not in anc_seen
+                        ):
+                            LOG.info("writing site matrix")
+                            g.create_dataset(
+                                stat,
+                                data=ld,
+                                shape=ld.shape,
+                                dtype=ld.dtype,
+                                **DS_KW,
+                            )
+                        elif ld_params.sum_site_by_rep:
+                            g[stat][:] += ld
 
-                    LOG.info("writing positions")
-                    pos = ts.sites_position
-                    g.create_dataset(
-                        "sites_pos", data=pos, shape=pos.shape, dtype=pos.dtype, **DS_KW
-                    )
+                    # LOG.info("writing positions")
+                    # pos = ts.sites_position
+                    # g.create_dataset(
+                    #     "sites_pos", data=pos, shape=pos.shape, dtype=pos.dtype, **DS_KW
+                    # )
+
+                anc_seen.add(anc_rep)
                 rep += 1
-
-    if params.ld_matrix.merge_mean:
-        merge_result(args.out_files)
 
     LOG.info("wrote result", file=args.out_files)
