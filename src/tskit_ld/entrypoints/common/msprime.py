@@ -65,17 +65,14 @@ class AncestryParams(BaseModel):
     coalescing_segments_only: bool | None = None
     num_labels: int | None = None
     random_seed: int | None = None
-    num_replicates: int | None = None
+    num_replicates: int = 1  # we always want to return an iterator
     replicate_index: int | None = None
     record_provenance: bool | None = None
 
-    @field_validator("random_seed")
+    @field_validator("num_replicates")
     @classmethod
-    def validate_num_replicates(cls, v: int | None) -> int:
-        if v is None:
-            return 1  # we always want to return an iterator
-        else:
-            assert v > 0, f"num replicates must be > 0, got: {v}"
+    def validate_num_replicates(cls, v: int) -> int:
+        assert v > 0, f"num replicates must be > 0, got: {v}"
         return v
 
 
@@ -97,7 +94,6 @@ class SimulationParams(BaseModel):
     @model_validator(mode="after")
     def validate_seeds(self) -> Self:
         n_reps = self.ancestry_params.num_replicates
-        assert n_reps is not None  # mypy
         if (
             self.mutation_params is not None
             and (mut_seeds := self.mutation_params.random_seeds) is not None
