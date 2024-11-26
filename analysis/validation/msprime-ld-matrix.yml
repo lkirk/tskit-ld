@@ -8,32 +8,31 @@ job:
   out_staging: true
   additional_args:
     max_idle: 1000
+    environment: POLARS_SKIP_CPU_CHECK=1
 params:
   out_files: !file_range
     fmt: ld_{}.zip
-    num: 10000
+    num: 10_000
   params:
     sim:
       !product
       ancestry_params:
         !product
-        sequence_length: [1e4]
-        recombination_rate: [5e-6]
-        population_size: [5000]
-        samples: [100]
-        ploidy: [1]
+        sequence_length: [4e3]
+        recombination_rate: [1e-8]
+        population_size: [1e4]
+        samples: [1000]
         random_seed: [33]
-        num_replicates: [1]
       mutation_params:
         !product
-        rate: [5e-5]
+        rate: [1e-6]
         discrete_genome: [false]
-        random_seeds: !split {arr: !randint_32 {seed: 23, size: 100_000}, n: 10000}
+        random_seeds: !split {arr: !randint_32 {seed: 23, size: 100_000}, n: 10_000}
     ld_matrix:
       !repeat
       rep:
-        summarize_site_by_tree: true
-        merge_mean: true
+        sum_site_by_rep: true
+        store_tree_breakpoints: true
         stat:
             - D
             - D2
@@ -46,6 +45,6 @@ params:
             - D2_unbiased
             - pi2_unbiased
         mode:
-          site
-          # - branch
-      n: 10000
+          - site
+          - branch
+      n: 10_000
