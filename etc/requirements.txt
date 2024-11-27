@@ -6,6 +6,7 @@ more-itertools
 polars
 pyarrow
 pyslim
-tskit@git+https://github.com/lkirk/tskit.git@46578bdc28211230ad7815b116564e57c2ba88e7#subdirectory=python
+#tskit@git+https://github.com/lkirk/tskit.git@0d4f60be330c342ff5b41d9417e532748648fd08#subdirectory=python
+tskit@git+https://github.com/tskit-dev/tskit.git@aea14d5f17d106df998cfb5efc102e71616616f4#subdirectory=python
 tszip
 zarr

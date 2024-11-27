@@ -5,3 +5,4 @@ ipykernel
 ipython
 matplotlib
 palettable
+zarr[jupyter]
