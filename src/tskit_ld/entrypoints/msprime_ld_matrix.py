@@ -2,7 +2,8 @@ import json
 from collections.abc import Iterator
 from itertools import groupby
 from pathlib import Path
-from typing import cast
+from shutil import rmtree
+from typing import Any, cast
 
 import numcodecs
 import numpy as np
@@ -102,7 +103,7 @@ def get_n_reps(params: SimulationParams) -> tuple[int, int]:
     return n_anc_reps, n_mut_reps
 
 
-def add_job_metadata(g: zarr.Group, params: MsprimeLDMatrixParams) -> None:
+def store_job_metadata(g: zarr.Group, params: MsprimeLDMatrixParams) -> None:
     attrs = {
         "stats": params.ld_matrix.stat,
         "anc_seed": params.sim.ancestry_params.random_seed,
@@ -113,18 +114,16 @@ def add_job_metadata(g: zarr.Group, params: MsprimeLDMatrixParams) -> None:
     g.attrs.update(**attrs)
 
 
-def add_sim_metadata(g: zarr.Group, ts: TreeSequence) -> None:
-    g.attrs.update(
-        **{
-            "provenance": [json.loads(p.record) for p in ts.provenances()],
-            "tree_stats": {
-                "num_edges": ts.num_edges,
-                "num_trees": ts.num_trees,
-                "num_mutations": ts.num_mutations,
-                "num_sites": ts.num_sites,
-            },
-        }
-    )
+def get_sim_metadata(ts: TreeSequence) -> dict[str, Any]:
+    return {
+        "provenance": [json.loads(p.record) for p in ts.provenances()],
+        "tree_stats": {
+            "num_edges": ts.num_edges,
+            "num_trees": ts.num_trees,
+            "num_mutations": ts.num_mutations,
+            "num_sites": ts.num_sites,
+        },
+    }
 
 
 def zero_diag(a):
@@ -171,9 +170,35 @@ def store_total_branch_length(ts: TreeSequence, g: zarr.Group) -> None:
     )
 
 
+def store_branch_ld(
+    ts: TreeSequence, params: LDMatrixParams, rep_group: zarr.Group
+) -> None:
+    g = rep_group.create_group("branch")
+    for stat, ld in compute_ld_matrix(ts, params, "branch"):
+        g.create_dataset(stat, data=ld, shape=ld.shape, dtype=ld.dtype, **DS_KW)
+
+
+def store_site_ld(
+    ts: TreeSequence, params: LDMatrixParams, rep_group: zarr.Group
+) -> None:
+    g = rep_group.require_group("site")
+    for stat, ld in compute_ld_matrix(ts, params, "site"):
+        if params.sum_site_by_rep:
+            ld = sum_site_ld_by_tree(ts, zero_diag(ld))
+        elif params.sum_site_by_tree:
+            ld = sum_site_ld_by_tree(ts, ld)
+
+        # When summing ld for a whole anc rep, this returns the running sum
+        ds = g.require_dataset(
+            stat, shape=ld.shape, dtype=ld.dtype, fill_value=0, **DS_KW
+        )
+        ds[:] += ld  # type: ignore
+
+
 @job_wrapper(JobParams)
 def main(args: JobParams) -> None:
     params = args.params
+    tmp_out = args.out_files.with_suffix(".tmp")
     n_anc_reps, n_mut_reps = get_n_reps(params.sim)
     n_reps = n_anc_reps * n_mut_reps
     ld_params = params.ld_matrix
@@ -190,74 +215,41 @@ def main(args: JobParams) -> None:
         case list():
             modes = set(ld_params.mode)
 
+    store = zarr.DirectoryStore(tmp_out)
+    root = zarr.group(store=store)
+    store_job_metadata(root, params)
+    ld_group = root.create_group("ld")
+    meta_group = root.create_group("ts_meta")
+
     rep = 1
-    with zarr.ZipStore(args.out_files, mode="w") as store:
-        root = zarr.group(store=store)
-        add_job_metadata(root, params)
-        ld_group = root.create_group("ld")
-        meta_group = root.create_group("ts_meta")
+    for _, group in groupby(run_msprime(params.sim), key=lambda g: g[0]):
+        anc_seen = set()
+        for anc_rep, mut_rep, ts in group:
+            rep_key = anc_rep if ld_params.sum_site_by_rep else (anc_rep, mut_rep)
+            rep_group = ld_group.require_group(rep_key)
 
-        for _, group in groupby(run_msprime(params.sim), key=lambda g: g[0]):
-            anc_seen = set()
-            for anc_rep, mut_rep, ts in group:
-                rep_sum_first = ld_params.sum_site_by_rep and anc_rep not in anc_seen
-                if anc_rep not in anc_seen:
-                    ts_data_group = meta_group.create_group(anc_rep)
-                    if ld_params.store_tree_breakpoints:
-                        store_tree_breakpoints(ts, ts_data_group)
-                    if ld_params.store_total_branch_length:
-                        store_total_branch_length(ts, ts_data_group)
+            if anc_rep not in meta_group:  # store basic info about ts and topo
+                ts_data_group = meta_group.create_group(anc_rep)
+                if ld_params.store_tree_breakpoints:
+                    store_tree_breakpoints(ts, ts_data_group)
+                if ld_params.store_total_branch_length:
+                    store_total_branch_length(ts, ts_data_group)
+                ts_data_group.attrs.update(**get_sim_metadata(ts))
 
-                LOG.info("Computing LD", rep=f"{rep}/{n_reps}")
-                if rep_sum_first:
-                    rep_group = ld_group.create_group(anc_rep)
-                elif ld_params.sum_site_by_rep:
-                    rep_group = ld_group[anc_rep]
-                else:
-                    rep_group = ld_group.create_group((anc_rep, mut_rep))
+            LOG.info("Computing LD", rep=f"{rep}/{n_reps}")
+            if "branch" in modes and anc_rep not in anc_seen:
+                store_branch_ld(ts, ld_params, rep_group)
 
-                assert isinstance(rep_group, zarr.Group)  # mypy
-                add_sim_metadata(rep_group, ts)
+            if "site" in modes:
+                store_site_ld(ts, ld_params, rep_group)
+            anc_seen.add(anc_rep)
+            rep += 1
 
-                if "branch" in modes and anc_rep not in anc_seen:
-                    g = rep_group.create_group("branch")
-                    for stat, ld in compute_ld_matrix(ts, ld_params, "branch"):
-                        LOG.info("writing branch matrix")
-                        g.create_dataset(
-                            stat, data=ld, shape=ld.shape, dtype=ld.dtype, **DS_KW
-                        )
+    LOG.info("Moving to zip store", file=args.out_files)
+    with zarr.ZipStore(args.out_files, mode="w") as zs:
+        zarr.copy_store(store, zs)
 
-                if "site" in modes:
-                    if rep_sum_first or not ld_params.sum_site_by_rep:
-                        g = rep_group.create_group("site")
-                    else:
-                        g = rep_group["site"]
-                    assert isinstance(g, zarr.Group)  # mypy
-                    for stat, ld in compute_ld_matrix(ts, ld_params, "site"):
-                        LOG.info("writing summarized LD data")
-                        if ld_params.sum_site_by_rep:
-                            ld = sum_site_ld_by_tree(ts, zero_diag(ld))
-                        else:
-                            ld = sum_site_ld_by_tree(ts, ld)
-                        if not ld_params.sum_site_by_rep or rep_sum_first:
-                            LOG.info("writing site matrix")
-                            g.create_dataset(
-                                stat,
-                                data=ld,
-                                shape=ld.shape,
-                                dtype=ld.dtype,
-                                **DS_KW,
-                            )
-                        elif ld_params.sum_site_by_rep:
-                            g[stat][:] += ld
-
-                    # LOG.info("writing positions")
-                    # pos = ts.sites_position
-                    # g.create_dataset(
-                    #     "sites_pos", data=pos, shape=pos.shape, dtype=pos.dtype, **DS_KW
-                    # )
-
-                anc_seen.add(anc_rep)
-                rep += 1
+    LOG.info("Removing tmp store", dir=tmp_out)
+    rmtree(tmp_out)
 
     LOG.info("wrote result", file=args.out_files)
