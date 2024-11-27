@@ -200,6 +200,7 @@ def main(args: JobParams) -> None:
         for _, group in groupby(run_msprime(params.sim), key=lambda g: g[0]):
             anc_seen = set()
             for anc_rep, mut_rep, ts in group:
+                rep_sum_first = ld_params.sum_site_by_rep and anc_rep not in anc_seen
                 if anc_rep not in anc_seen:
                     ts_data_group = meta_group.create_group(anc_rep)
                     if ld_params.store_tree_breakpoints:
@@ -208,10 +209,12 @@ def main(args: JobParams) -> None:
                         store_total_branch_length(ts, ts_data_group)
 
                 LOG.info("Computing LD", rep=f"{rep}/{n_reps}")
-                if ld_params.sum_site_by_rep and anc_rep not in anc_seen:
+                if rep_sum_first:
                     rep_group = ld_group.create_group(anc_rep)
                 elif not ld_params.sum_site_by_rep:
                     rep_group = ld_group.create_group((anc_rep, mut_rep))
+                else:
+                    raise Exception("Rep group not created")
 
                 add_sim_metadata(rep_group, ts)
 
@@ -224,24 +227,18 @@ def main(args: JobParams) -> None:
                         )
 
                 if "site" in modes:
-                    if (
-                        ld_params.sum_site_by_rep
-                        and anc_rep not in anc_seen
-                        or not ld_params.sum_site_by_rep
-                    ):
+                    if rep_sum_first or not ld_params.sum_site_by_rep:
                         g = rep_group.create_group("site")
                     else:
                         g = rep_group["site"]
+                    assert isinstance(g, zarr.Group)  # mypy
                     for stat, ld in compute_ld_matrix(ts, ld_params, "site"):
-                        if ld_params.sum_site_by_tree or ld_params.sum_site_by_rep:
-                            LOG.info("writing summarized LD data")
-                            if ld_params.sum_site_by_rep:
-                                ld = sum_site_ld_by_tree(ts, zero_diag(ld))
-                            else:
-                                ld = sum_site_ld_by_tree(ts, ld)
-                        if (not ld_params.sum_site_by_rep) or (
-                            ld_params.sum_site_by_rep and anc_rep not in anc_seen
-                        ):
+                        LOG.info("writing summarized LD data")
+                        if ld_params.sum_site_by_rep:
+                            ld = sum_site_ld_by_tree(ts, zero_diag(ld))
+                        else:
+                            ld = sum_site_ld_by_tree(ts, ld)
+                        if not ld_params.sum_site_by_rep or rep_sum_first:
                             LOG.info("writing site matrix")
                             g.create_dataset(
                                 stat,
