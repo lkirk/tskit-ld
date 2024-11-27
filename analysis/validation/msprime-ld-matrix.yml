@@ -27,7 +27,8 @@ params:
         !product
         rate: [1e-6]
         discrete_genome: [false]
-        random_seeds: !split {arr: !randint_32 {seed: 23, size: 100_000}, n: 10_000}
+        # One million replicates in chunks of 100
+        random_seeds: !split {arr: !randint_32 {seed: 23, size: 1_00_000}, n: 10_000}
     ld_matrix:
       !repeat
       rep:
