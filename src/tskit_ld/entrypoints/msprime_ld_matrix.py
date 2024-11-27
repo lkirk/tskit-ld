@@ -211,7 +211,7 @@ def main(args: JobParams) -> None:
                 LOG.info("Computing LD", rep=f"{rep}/{n_reps}")
                 if rep_sum_first:
                     rep_group = ld_group.create_group(anc_rep)
-                elif not ld_params.sum_site_by_rep:
+                elif ld_params.sum_site_by_rep:
                     rep_group = ld_group[anc_rep]
                 else:
                     rep_group = ld_group.create_group((anc_rep, mut_rep))
