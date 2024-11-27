@@ -212,10 +212,11 @@ def main(args: JobParams) -> None:
                 if rep_sum_first:
                     rep_group = ld_group.create_group(anc_rep)
                 elif not ld_params.sum_site_by_rep:
-                    rep_group = ld_group.create_group((anc_rep, mut_rep))
+                    rep_group = ld_group[anc_rep]
                 else:
-                    raise Exception("Rep group not created")
+                    rep_group = ld_group.create_group((anc_rep, mut_rep))
 
+                assert isinstance(rep_group, zarr.Group)  # mypy
                 add_sim_metadata(rep_group, ts)
 
                 if "branch" in modes and anc_rep not in anc_seen:
