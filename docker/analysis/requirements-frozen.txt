@@ -1,13 +1,14 @@
 # base requirements for job execution, used in docker container
-htcluster @ git+https://github.com/lkirk/htcluster.git@3525480032edd90347ba8f47e322a95301f7c9a4
+htcluster @ git+https://github.com/lkirk/htcluster.git@f740de61229a2a9ca928683e9dfd9d8ee62d4221
 joblib==1.4.2
-moments-popgen==1.2.2
+moments-popgen==1.3.0
 more-itertools==10.5.0
-polars==1.15.0
+polars==1.16.0
 pyarrow==18.1.0
 pyslim==1.0.4
 #tskit@git+https://github.com/lkirk/tskit.git@0d4f60be330c342ff5b41d9417e532748648fd08#subdirectory=python
-tskit @ git+https://github.com/tskit-dev/tskit.git@aea14d5f17d106df998cfb5efc102e71616616f4#subdirectory=python
+#tskit@git+https://github.com/tskit-dev/tskit.git@aea14d5f17d106df998cfb5efc102e71616616f4#subdirectory=python
+tskit @ git+https://github.com/lkirk/tskit.git@1e48454a2f7c5a681d7b47a3e538566209338bf2#subdirectory=python
 tszip==0.2.5
 zarr==2.18.3
 ## The following requirements were added by pip freeze:
@@ -25,11 +26,11 @@ msprime==1.3.3
 newick==1.9.0
 numcodecs==0.14.1
 numpy==1.26.4
-pydantic==2.10.2
+pydantic==2.10.3
 pydantic_core==2.27.1
 PyYAML==6.0.2
 referencing==0.35.1
-rpds-py==0.21.0
+rpds-py==0.22.1
 ruamel.yaml==0.18.6
 ruamel.yaml.clib==0.2.12
 scipy==1.14.1
