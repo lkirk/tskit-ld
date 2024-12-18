@@ -3,18 +3,16 @@ htcluster @ git+https://github.com/lkirk/htcluster.git@f740de61229a2a9ca928683e9
 joblib==1.4.2
 moments-popgen==1.3.0
 more-itertools==10.5.0
-polars==1.16.0
+polars==1.17.1
 pyarrow==18.1.0
 pyslim==1.0.4
-#tskit@git+https://github.com/lkirk/tskit.git@0d4f60be330c342ff5b41d9417e532748648fd08#subdirectory=python
-#tskit@git+https://github.com/tskit-dev/tskit.git@aea14d5f17d106df998cfb5efc102e71616616f4#subdirectory=python
-tskit @ git+https://github.com/lkirk/tskit.git@1e48454a2f7c5a681d7b47a3e538566209338bf2#subdirectory=python
+tskit @ git+https://github.com/lkirk/tskit.git@53359a0d9f2947767a6511eb5004e43800d34652#subdirectory=python
 tszip==0.2.5
-zarr==2.18.3
+zarr==2.18.4
 ## The following requirements were added by pip freeze:
 annotated-types==0.7.0
 asciitree==0.3.3
-attrs==24.2.0
+attrs==24.3.0
 Cython==3.0.11
 demes==0.2.3
 fasteners==0.19
@@ -24,13 +22,13 @@ jsonschema-specifications==2024.10.1
 mpmath==1.3.0
 msprime==1.3.3
 newick==1.9.0
-numcodecs==0.14.1
+numcodecs==0.13.1
 numpy==1.26.4
-pydantic==2.10.3
-pydantic_core==2.27.1
+pydantic==2.10.4
+pydantic_core==2.27.2
 PyYAML==6.0.2
 referencing==0.35.1
-rpds-py==0.22.1
+rpds-py==0.22.3
 ruamel.yaml==0.18.6
 ruamel.yaml.clib==0.2.12
 scipy==1.14.1
